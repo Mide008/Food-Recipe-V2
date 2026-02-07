@@ -1,433 +1,409 @@
 <!DOCTYPE html>
-
 <html lang="en">
-
 <head>
-
     <meta charset="UTF-8">
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>What's Cooking - Find Your Perfect Recipe</title>
-
+    <meta name="description" content="Find perfect recipes with AI-powered search. Save, share, and cook with ease.">
+    <meta name="theme-color" content="#58CC9D">
+    
+    <title>What's Cooking - AI-Powered Recipe Discovery</title>
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" href="./style.css" as="style">
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@700;900&display=swap" as="style">
+    
     <link rel="stylesheet" href="./style.css">
-
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@700;900&display=swap">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="./manifest.json">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍳</text></svg>">
 </head>
-
 <body>
-
-    <div class="full-page-body" id="full-page-body">
-
-        <!-- Hero Section -->
-
-        <div class="hero-section" id="hero-section">
-
-            <div class="hero-section-top" id="hero-section-top">
-
-                <div class="headline">
-
-                    <h1>What's Cooking?</h1>
-
-                    <!-- <h1>Find the Perfect Recipe in Seconds</h1> -->
-
-                    <h1>Find the <span class="highlight-green">Perfect Recipe</span> in Seconds</h1>
-
-                </div>
-
-                <div class="sub-headline">
-
-                    <p>Enter ingredients and get instant recipe ideas tailored just for you.</p>
-
-                </div>
-
-            </div>
-
-
-
-            <div class="hero-section-bottom" id="hero-section-bottom">
-
-                <div class="search-container" id="search-container">
-
-                    <span class="search-icon">🔍</span>
-
-                    <input type="text" name="search-bar" id="search-bar" placeholder="Enter ingredients or cravings (e.g., eggs, pasta, spicy) & get recipes!">
-
-                    <button class="button" id="button">Surprise me!</button>
-
-                </div>
-
-                <!-- Popular ingredient tags -->
-
-                <div class="recipe-lists" id="recipe-lists">
-
-                    <div class="ingredient">Tomato</div>
-
-                    <div class="ingredient">Chicken</div>
-
-                    <div class="ingredient">Garlic</div>
-
-                    <div class="ingredient">Pasta</div>
-
-                    <div class="ingredient">Avocado</div>
-
-                    <div class="ingredient">Mushroom</div>
-
-                </div>
-
-            </div>
-
-        </div>
-
-
-
-        <!-- Recipe Cards Section -->
-
-        <div class="cards-section" id="cards-section">
-
-            <div class="features-recipe" id="features-recipe">
-
-                <h3>Featured Recipes</h3>
-
-            </div>
-
-            <div class="recipe-cards" id="recipe-cards">
-
-                <!-- Recipe cards will be populated by JavaScript -->
-
-                <div class="cards" id="cards">
-
-                    <div class="top-card">
-
-                        <img src="/api/placeholder/400/320" alt="Enchiladas Suizas">
-
-                    </div>
-
-                    <div class="info-card">
-
-                        <div class="card-head">
-
-                            <h5>Enchiladas Suizas (Creamy Enchiladas Verdes)</h5>
-
-                            <p>15 mins | Easy | Serves 3</p>
-
-                            <p>Ingredients: Beef, Tomato, Garlic</p>
-
-                        </div>
-
-                        <div class="rating-down">
-
-                            <div class="left-side">
-
-                                ⭐ <span>4.9 </span>
-
-                            </div>
-
-                            <div class="right-side">
-
-                                <i class="fas fa-arrow-right"></i>
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-                <!-- More recipe cards will be added here by JavaScript -->
-
-            </div>
-
-        </div>
-
-
-
-        <!-- Footer Section -->
-
-        <div class="footer-section" id="footer-section">
-
-            <div class="sets-items">
-
-                <div class="sets">
-
-                    <div class="head-set">
-
-                        <h6>Explore</h6>
-
-                    </div>
-
-                    <div class="items-list">
-
-                        <p>Flavored</p>
-
-                        <p>Where to Buy</p>
-
-                        <p>All Products</p>
-
-                        <p>Spreads</p>
-
-                    </div>
-
-                </div>
-
-                <div class="sets">
-
-                    <div class="head-set">
-
-                        <h6>Cook</h6>
-
-                    </div>
-
-                    <div class="items-list">
-
-                        <p>All Recipes</p>
-
-                        <p>Popular Recipes</p>
-
-                        <p>Quick Easy</p>
-
-                        <p>Plants</p>
-
-                    </div>
-
-                </div>
-
-                <div class="sets">
-
-                    <div class="head-set">
-
-                        <h6>Company</h6>
-
-                    </div>
-
-                    <div class="items-list">
-
-                        <p>About Us</p>
-
-                        <p>Careers</p>
-
-                        <p>Contact Us</p>
-
-                        <p>Terms of Use</p>
-
-                    </div>
-
-                </div>
-
-                <div class="right-side-footer">
-
-                    <div class="head-set">
-
-                        <h6>Subscribe</h6>
-
-                    </div>
-
-                    <div class="input-sub">
-
-                        <div class="input-email-type">
-
-                            <input type="email" name="email" placeholder="Email Address">
-
-                        </div>
-
-                        <div class="send-button">
-
-                            <i class="fas fa-solid fa-arrow-right arrow-icon"></i>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-            </div>
-
-            <div class="copy-right">
-
-                <p>&copy; Olumide 2025. All rights reserved</p>
-
-                <div class="termss">
-
-                    <h6>Terms</h6>
-
-                    <h6>Privacy</h6>
-
-                    <h6>Cookies</h6>
-
-                </div>
-
-            </div>
-
-        </div>
-
-
-
-        <!-- Recipe Overlay -->
-
-        <div class="recipe-overlay" id="recipe-overlay">
-
-            <div class="overlay-content">
-
-                <button class="close-overlay" id="close-overlay" aria-label="Close recipe details">
-
-                    <i class="fas fa-times"></i>
-
+    <!-- Main App Container -->
+    <div class="app-container" id="app-container">
+        
+        <!-- Floating Smart Dock -->
+        <nav class="smart-dock" id="smart-dock" role="navigation" aria-label="Main navigation">
+            <div class="dock-items">
+                <button class="dock-item active" data-page="home" aria-label="Home">
+                    <i class="fas fa-home"></i>
+                    <span>Home</span>
                 </button>
+                <button class="dock-item" data-page="explore" aria-label="Explore recipes">
+                    <i class="fas fa-compass"></i>
+                    <span>Explore</span>
+                </button>
+                <button class="dock-item" data-page="my-kitchen" aria-label="My Kitchen">
+                    <i class="fas fa-book-open"></i>
+                    <span>Kitchen</span>
+                </button>
+                <button class="dock-item" data-page="shopping-list" aria-label="Shopping list">
+                    <i class="fas fa-shopping-cart"></i>
+                    <span class="cart-badge" id="cart-badge">0</span>
+                    <span>List</span>
+                </button>
+                <button class="dock-item" data-page="profile" aria-label="Profile settings">
+                    <i class="fas fa-user"></i>
+                    <span>Profile</span>
+                </button>
+            </div>
+        </nav>
 
-                <div class="recipe-detail-container">
-
-                    <div class="recipe-image">
-
-                        <img src="/api/placeholder/400/320" alt="Recipe image" id="overlay-recipe-image">
-
-                    </div>
-
-                    <div class="recipe-info">
-
-                        <div class="recipe-header">
-
-                            <div class="recipe-tags">
-
-                                <span class="recipe-category" id="overlay-category">🍽️ Main</span>
-
-                                <span class="recipe-region" id="overlay-region">🌍 International</span>
-
-                            </div>
-
-                            <h2 class="recipe-title" id="overlay-title">Mushroom and Veggie Stir-Fry</h2>
-
-                            <div class="recipe-rating" id="overlay-rating">⭐⭐⭐⭐⭐ 3.6</div>
-
-                            <button class="start-cooking-btn" id="start-cooking-btn">Start Cooking</button>
-
-                            <div class="recipe-actions">
-
-                                <div class="action-item">
-
-                                    <i class="fas fa-share-nodes"></i>
-
-                                    <span>Share</span>
-
-                                </div>
-
-                                <div class="action-item">
-
-                                    <i class="fas fa-bookmark"></i>
-
-                                    <span>Save</span>
-
-                                </div>
-
-                                <div class="action-item">
-
-                                    <i class="fas fa-print"></i>
-
-                                    <span>Print</span>
-
-                                </div>
-
-                                <div class="action-item">
-
-                                    <i class="fas fa-comment"></i>
-
-                                    <span>Comment</span>
-
-                                </div>
-
-                            </div>
-
+        <!-- Main Content Area -->
+        <main class="main-content" id="main-content">
+            
+            <!-- HOME PAGE -->
+            <div class="page active" id="page-home" role="main">
+                
+                <!-- Hero Section -->
+                <section class="hero-section" id="hero-section">
+                    <div class="hero-section-top" id="hero-section-top">
+                        <div class="headline">
+                            <h1>What's Cooking?</h1>
+                            <h1 class="hero-title">Find the <span class="highlight-green">Perfect Recipe</span> in Seconds</h1>
                         </div>
-
-
-
-                        <div class="recipe-content">
-
-                            <div class="recipe-ingredients">
-
-                                <h3>Ingredients</h3>
-
-                                <ul id="overlay-ingredients">
-
-                                    <li>2 tbsp + 2 tsp neutral oil (canola, avocado, vegetable)</li>
-
-                                    <li>4 oz snow peas</li>
-
-                                    <li>6 oz ripe cherry tomatoes (1.5 cups)</li>
-
-                                    <li>1 large yellow onion (12 oz), chopped</li>
-
-                                    <li>3 garlic cloves, chopped</li>
-
-                                    <li>1 tsp grated fresh ginger</li>
-
-                                    <li>1 cup frozen peas</li>
-
-                                </ul>
-
-                            </div>
-
-                            <div class="recipe-directions">
-
-                                <h3>Directions</h3>
-
-                                <ol id="overlay-directions">
-
-                                    <li>Set a large plate next to the stove.</li>
-
-                                    <li>In a 12-inch skillet over medium-high heat, cook snow peas until blistered. Transfer.</li>
-
-                                    <li>Sear tomatoes in oil until blackened, about 2 minutes.</li>
-
-                                    <li>Cook onion, garlic, and spices, then blend cashews and boiling water to form a smooth paste.</li>
-
-                                    <li>Stir everything together and simmer for 2 more minutes.</li>
-
-                                </ol>
-
-                            </div>
-
-                            <div class="recipe-nutrition">
-
-                                <h3>Nutritional Facts (Per Serving)</h3>
-
-                                <ul id="overlay-nutrition">
-
-                                    <li>Calories: 360</li>
-
-                                    <li>Fat: 19g</li>
-
-                                    <li>Carbs: 18g</li>
-
-                                    <li>Protein: 12g</li>
-
-                                    <li>Sugar: 9g</li>
-
-                                </ul>
-
-                                <p class="nutrition-disclaimer">This analysis is an estimate based on available ingredients and this preparation. It should not substitute for a dietitian's or nutritionist's advice.</p>
-
-                            </div>
-
+                        <div class="sub-headline">
+                            <p>Tell me what you're craving, and I'll find the perfect recipe for you.</p>
                         </div>
-
                     </div>
+                    
+                    <div class="hero-section-bottom" id="hero-section-bottom">
+                        <div class="search-container" id="search-container">
+                            <span class="search-icon" aria-hidden="true">✨</span>
+                            <input 
+                                type="text" 
+                                name="search-bar" 
+                                id="search-bar"
+                                placeholder="Tell me what you're craving..."
+                                aria-label="Search for recipes by ingredients or dish name"
+                                autocomplete="off"
+                            >
+                            <button class="voice-search-btn" id="voice-search-btn" aria-label="Voice search">
+                                <i class="fas fa-microphone"></i>
+                            </button>
+                            <button class="button" id="button" aria-label="Get random recipe">Surprise me!</button>
+                        </div>
+                        
+                        <button class="scan-fridge-btn" id="scan-fridge-btn" aria-label="Scan ingredients with camera">
+                            <i class="fas fa-camera"></i>
+                            <span>Scan My Fridge</span>
+                        </button>
+                        
+                        <!-- Popular ingredient tags -->
+                        <div class="recipe-lists" id="recipe-lists" role="list">
+                            <div class="ingredient" role="listitem" tabindex="0" style="--i: 0">Tomato</div>
+                            <div class="ingredient" role="listitem" tabindex="0" style="--i: 1">Chicken</div>
+                            <div class="ingredient" role="listitem" tabindex="0" style="--i: 2">Garlic</div>
+                            <div class="ingredient" role="listitem" tabindex="0" style="--i: 3">Pasta</div>
+                            <div class="ingredient" role="listitem" tabindex="0" style="--i: 4">Avocado</div>
+                            <div class="ingredient" role="listitem" tabindex="0" style="--i: 5">Mushroom</div>
+                        </div>
+                    </div>
+                </section>
 
-                </div>
+                <!-- Recipe Cards Section -->
+                <section class="cards-section" id="cards-section">
+                    <div class="features-recipe" id="features-recipe">
+                        <h2>Featured Recipes</h2>
+                    </div>
+                    <div class="recipe-cards" id="recipe-cards" role="list">
+                        <!-- Recipe cards will be populated by JavaScript -->
+                    </div>
+                </section>
 
+                <!-- Footer Section -->
+                <footer class="footer-section" id="footer-section" role="contentinfo">
+                    <div class="footer-content">
+                        <div class="footer-brand">
+                            <h2>🍳 What's Cooking</h2>
+                            <p>Find your perfect recipe in seconds with AI-powered search</p>
+                        </div>
+                        
+                        <div class="footer-links">
+                            <a href="#hero-section" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">Home</a>
+                            <a href="#" onclick="PageNavigator.navigateTo('explore'); return false;">Explore</a>
+                            <a href="#" onclick="PageNavigator.navigateTo('my-kitchen'); return false;">My Kitchen</a>
+                            <a href="#" onclick="PageNavigator.navigateTo('shopping-list'); return false;">Shopping List</a>
+                            <a href="#" onclick="PageNavigator.navigateTo('profile'); return false;">Settings</a>
+                        </div>
+                        
+                        <div class="footer-newsletter">
+                            <h3>Stay Updated</h3>
+                            <form class="newsletter-form" id="footer-newsletter-form" onsubmit="event.preventDefault(); app.subscribeNewsletter(this);">
+                                <input 
+                                    type="email" 
+                                    name="email" 
+                                    placeholder="Your email address"
+                                    required
+                                >
+                                <button type="submit">
+                                    <i class="fas fa-arrow-right"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <div class="footer-bottom">
+                        <p>&copy; 2026 What's Cooking. All rights reserved.</p>
+                        <div class="footer-legal">
+                            <a href="#" onclick="alert('Terms of Service'); return false;">Terms</a>
+                            <a href="#" onclick="alert('Privacy Policy'); return false;">Privacy</a>
+                            <a href="#" onclick="alert('Cookie Policy'); return false;">Cookies</a>
+                        </div>
+                    </div>
+                </footer>
             </div>
 
+            <!-- EXPLORE PAGE -->
+            <div class="page" id="page-explore">
+                <div class="page-header">
+                    <button class="back-to-home" onclick="PageNavigator.navigateTo('home')">
+                        <i class="fas fa-arrow-left"></i> Home
+                    </button>
+                    <h1>Explore Recipes</h1>
+                    <p>Discover recipes by cuisine, diet, and cooking time</p>
+                </div>
+                
+                <div class="explore-filters">
+                    <div class="filter-section">
+                        <h3>Cuisine</h3>
+                        <div class="filter-chips" id="cuisine-filters">
+                            <button class="filter-chip" data-filter="african">African</button>
+                            <button class="filter-chip" data-filter="asian">Asian</button>
+                            <button class="filter-chip" data-filter="italian">Italian</button>
+                            <button class="filter-chip" data-filter="mexican">Mexican</button>
+                            <button class="filter-chip" data-filter="mediterranean">Mediterranean</button>
+                            <button class="filter-chip" data-filter="indian">Indian</button>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <h3>Dietary Preferences</h3>
+                        <div class="filter-chips" id="diet-filters">
+                            <button class="filter-chip" data-filter="vegetarian">Vegetarian</button>
+                            <button class="filter-chip" data-filter="vegan">Vegan</button>
+                            <button class="filter-chip" data-filter="keto">Keto</button>
+                            <button class="filter-chip" data-filter="gluten-free">Gluten-Free</button>
+                            <button class="filter-chip" data-filter="low-carb">Low-Carb</button>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <h3>Cooking Time</h3>
+                        <div class="filter-chips" id="time-filters">
+                            <button class="filter-chip" data-filter="quick">Under 30 min</button>
+                            <button class="filter-chip" data-filter="medium">30-60 min</button>
+                            <button class="filter-chip" data-filter="long">Over 60 min</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="explore-results" id="explore-results"></div>
+            </div>
+
+            <!-- MY KITCHEN PAGE -->
+            <div class="page" id="page-my-kitchen">
+                <div class="page-header">
+                    <button class="back-to-home" onclick="PageNavigator.navigateTo('home')">
+                        <i class="fas fa-arrow-left"></i> Home
+                    </button>
+                    <h1>My Kitchen</h1>
+                    <p>Your saved recipes and cooking history</p>
+                </div>
+                
+                <div class="kitchen-tabs">
+                    <button class="tab-btn active" data-tab="saved">Saved Recipes</button>
+                    <button class="tab-btn" data-tab="history">Cooking History</button>
+                    <button class="tab-btn" data-tab="meal-plan">Meal Planning</button>
+                </div>
+                
+                <div class="kitchen-content">
+                    <div class="tab-content active" id="tab-saved">
+                        <div id="saved-recipes-container"></div>
+                    </div>
+                    
+                    <div class="tab-content" id="tab-history">
+                        <div id="history-container"></div>
+                    </div>
+                    
+                    <div class="tab-content" id="tab-meal-plan">
+                        <div id="meal-plan-container">
+                            <div class="meal-calendar" id="meal-calendar"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SHOPPING LIST PAGE -->
+            <div class="page" id="page-shopping-list">
+                <div class="page-header">
+                    <button class="back-to-home" onclick="PageNavigator.navigateTo('home')">
+                        <i class="fas fa-arrow-left"></i> Home
+                    </button>
+                    <h1>Shopping List</h1>
+                    <p>Ingredients from your saved recipes</p>
+                </div>
+                
+                <div class="shopping-actions">
+                    <button class="btn-secondary" id="clear-list-btn">Clear All</button>
+                    <button class="btn-primary" id="export-list-btn">Export List</button>
+                </div>
+                
+                <div class="shopping-list-container" id="shopping-list-container">
+                    <!-- Shopping list items grouped by category -->
+                </div>
+            </div>
+
+            <!-- PROFILE PAGE -->
+            <div class="page" id="page-profile">
+                <div class="page-header">
+                    <button class="back-to-home" onclick="PageNavigator.navigateTo('home')">
+                        <i class="fas fa-arrow-left"></i> Home
+                    </button>
+                    <h1>Profile Settings</h1>
+                    <p>Customize your cooking experience</p>
+                </div>
+                
+                <div class="profile-sections">
+                    <div class="profile-section">
+                        <h3>Dietary Restrictions</h3>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="diet" value="vegetarian"> Vegetarian</label>
+                            <label><input type="checkbox" name="diet" value="vegan"> Vegan</label>
+                            <label><input type="checkbox" name="diet" value="gluten-free"> Gluten-Free</label>
+                            <label><input type="checkbox" name="diet" value="dairy-free"> Dairy-Free</label>
+                            <label><input type="checkbox" name="diet" value="nut-free"> Nut-Free</label>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-section">
+                        <h3>Allergen Warnings</h3>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="allergen" value="nuts"> Nuts</label>
+                            <label><input type="checkbox" name="allergen" value="shellfish"> Shellfish</label>
+                            <label><input type="checkbox" name="allergen" value="eggs"> Eggs</label>
+                            <label><input type="checkbox" name="allergen" value="soy"> Soy</label>
+                            <label><input type="checkbox" name="allergen" value="wheat"> Wheat</label>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-section">
+                        <h3>Measurement System</h3>
+                        <div class="radio-group">
+                            <label><input type="radio" name="measurement" value="metric" checked> Metric (kg, L, °C)</label>
+                            <label><input type="radio" name="measurement" value="imperial"> Imperial (lb, cup, °F)</label>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-section">
+                        <h3>Appearance</h3>
+                        <div class="theme-switcher">
+                            <button class="theme-btn active" data-theme="light">
+                                <i class="fas fa-sun"></i> Light
+                            </button>
+                            <button class="theme-btn" data-theme="dark">
+                                <i class="fas fa-moon"></i> Dark
+                            </button>
+                            <button class="theme-btn" data-theme="auto">
+                                <i class="fas fa-circle-half-stroke"></i> Auto
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-section">
+                        <h3>Kitchen Equipment</h3>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="equipment" value="oven" checked> Oven</label>
+                            <label><input type="checkbox" name="equipment" value="microwave" checked> Microwave</label>
+                            <label><input type="checkbox" name="equipment" value="blender"> Blender</label>
+                            <label><input type="checkbox" name="equipment" value="slow-cooker"> Slow Cooker</label>
+                            <label><input type="checkbox" name="equipment" value="air-fryer"> Air Fryer</label>
+                            <label><input type="checkbox" name="equipment" value="instant-pot"> Instant Pot</label>
+                        </div>
+                    </div>
+                    
+                    <button class="btn-primary save-profile-btn" id="save-profile-btn">Save Preferences</button>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Left Side Drawer Modal -->
+        <aside class="recipe-drawer" id="recipe-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+            <div class="drawer-overlay" id="drawer-overlay"></div>
+            <div class="drawer-content">
+                <button class="close-drawer" id="close-drawer" aria-label="Close recipe details">
+                    <i class="fas fa-times"></i>
+                </button>
+                
+                <div class="drawer-body" id="drawer-body">
+                    <!-- Recipe details will be populated here -->
+                </div>
+            </div>
+        </aside>
+
+        <!-- Cooking Mode Full Screen -->
+        <div class="cooking-mode" id="cooking-mode" role="dialog" aria-modal="true">
+            <div class="cooking-mode-header">
+                <h2 id="cooking-mode-title"></h2>
+                <button class="exit-cooking-mode" id="exit-cooking-mode" aria-label="Exit cooking mode">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="cooking-mode-content">
+                <div class="step-display">
+                    <div class="step-number">Step <span id="current-step">1</span> of <span id="total-steps">5</span></div>
+                    <div class="step-instruction" id="step-instruction"></div>
+                </div>
+                
+                <div class="cooking-controls">
+                    <button class="cooking-btn" id="prev-step" aria-label="Previous step">
+                        <i class="fas fa-chevron-left"></i> Previous
+                    </button>
+                    <button class="cooking-btn timer-btn" id="timer-btn" aria-label="Set timer">
+                        <i class="fas fa-clock"></i> Timer
+                    </button>
+                    <button class="cooking-btn primary" id="next-step" aria-label="Next step">
+                        Next <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+                
+                <div class="voice-command-indicator" id="voice-indicator">
+                    <i class="fas fa-microphone"></i>
+                    <span>Say "Next step", "Repeat", or "Set timer"</span>
+                </div>
+            </div>
+            
+            <div class="active-timers" id="active-timers"></div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div class="toast-container" id="toast-container" role="status" aria-live="polite"></div>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loading-overlay">
+            <div class="loading-spinner"></div>
         </div>
 
     </div>
 
-
-
-    <script src="./index.js"></script>
-
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('Service Worker registration failed'));
+            });
+        }
+    </script>
+    
+    <!-- Main Application Script -->
+    <script src="./app.js" type="module"></script>
 </body>
-
 </html>
-
-
