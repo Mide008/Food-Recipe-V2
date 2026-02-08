@@ -1,44 +1,137 @@
 {
-  "name": "What's Cooking - Recipe Discovery",
-  "short_name": "What's Cooking",
-  "description": "AI-powered recipe discovery and cooking assistant",
+  "name": "Recipe Finder - Discover Delicious Recipes",
+  "short_name": "Recipe Finder",
+  "description": "Discover recipes from around the world including authentic Nigerian and African cuisine with smart features, meal planning, and cooking guides",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#FDFCFB",
-  "theme_color": "#58CC9D",
-  "orientation": "portrait",
+  "background_color": "#FF6B35",
+  "theme_color": "#FF6B35",
+  "orientation": "portrait-primary",
+  "scope": "/",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' fill='%2358CC9D'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-size='350' fill='white'>🍳</text></svg>",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
+      "src": "/icon-72.png",
+      "sizes": "72x72",
+      "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' fill='%2358CC9D'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-size='350' fill='white'>🍳</text></svg>",
+      "src": "/icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ],
-  "categories": ["food", "lifestyle"],
-  "screenshots": [],
+  "categories": ["food", "lifestyle", "utilities"],
+  "screenshots": [
+    {
+      "src": "/screenshot-1.png",
+      "sizes": "540x720",
+      "type": "image/png"
+    },
+    {
+      "src": "/screenshot-2.png",
+      "sizes": "540x720",
+      "type": "image/png"
+    }
+  ],
   "shortcuts": [
     {
       "name": "Search Recipes",
+      "short_name": "Search",
+      "description": "Search for recipes",
       "url": "/?action=search",
-      "description": "Search for recipes"
+      "icons": [
+        {
+          "src": "/icon-96.png",
+          "sizes": "96x96"
+        }
+      ]
     },
     {
-      "name": "My Kitchen",
-      "url": "/?page=my-kitchen",
-      "description": "View saved recipes"
+      "name": "Saved Recipes",
+      "short_name": "Saved",
+      "description": "View your saved recipes",
+      "url": "/?page=saved",
+      "icons": [
+        {
+          "src": "/icon-96.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Meal Planner",
+      "short_name": "Meal Plan",
+      "description": "Plan your meals for the week",
+      "url": "/?page=meal-plan",
+      "icons": [
+        {
+          "src": "/icon-96.png",
+          "sizes": "96x96"
+        }
+      ]
     },
     {
       "name": "Shopping List",
-      "url": "/?page=shopping-list",
-      "description": "View shopping list"
+      "short_name": "Shopping",
+      "description": "View your shopping list",
+      "url": "/?action=cart",
+      "icons": [
+        {
+          "src": "/icon-96.png",
+          "sizes": "96x96"
+        }
+      ]
     }
   ],
-  "prefer_related_applications": false
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "related_applications": [],
+  "prefer_related_applications": false,
+  "iarc_rating_id": ""
 }

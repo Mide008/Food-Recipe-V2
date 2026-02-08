@@ -1,28 +1,30 @@
 /* =================================================================
-   WHAT'S COOKING - MAIN APPLICATION
-   Production-Grade Recipe App - All Features Implemented
+   RECIPE FINDER APP - PRODUCTION GRADE
+   Complete with PWA, Gamification, Smart Features & More
    ================================================================= */
 
 // ===== CONFIGURATION =====
 const CONFIG = {
     API: {
         THEMEALDB: 'https://www.themealdb.com/api/json/v1/1',
-        EDAMAM_ID: '7d940b3a', // User's Application ID
-        EDAMAM_KEY: '02a66f457d65a984b21f4c99a7ccb80f', // User's Application Key
+        EDAMAM_ID: '7d940b3a',
+        EDAMAM_KEY: '02a66f457d65a984b21f4c99a7ccb80f',
         SPOONACULAR_KEY: '9dba71a2a01941e9a00b0de69f85a7c0',
         TASTY_KEY: '311505fa7fmshacb3f72c3abf99dp15ed52jsnbca532426431',
         QR_SERVER: 'https://api.qrserver.com/v1/create-qr-code/',
-        OPENFOODFACTS: 'https://world.openfoodfacts.org/api/v2'
+        UNSPLASH_ACCESS: 'YOUR_UNSPLASH_ACCESS_KEY' // Replace with your key
     },
     STORAGE_KEYS: {
-        SAVED_RECIPES: 'whatsCooking_savedRecipes',
-        SHOPPING_LIST: 'whatsCooking_shoppingList',
-        COOKING_HISTORY: 'whatsCooking_cookingHistory',
-        USER_PREFERENCES: 'whatsCooking_userPreferences',
-        MEAL_PLAN: 'whatsCooking_mealPlan',
-        THEME: 'whatsCooking_theme'
+        SAVED_RECIPES: 'recipeFinder_saved',
+        SHOPPING_LIST: 'recipeFinder_cart',
+        COOKING_HISTORY: 'recipeFinder_history',
+        USER_PREFERENCES: 'recipeFinder_prefs',
+        MEAL_PLAN: 'recipeFinder_mealPlan',
+        ACHIEVEMENTS: 'recipeFinder_achievements',
+        COOKING_STREAK: 'recipeFinder_streak'
     },
-    CACHE_DURATION: 7 * 24 * 60 * 60 * 1000 // 7 days
+    CACHE_DURATION: 7 * 24 * 60 * 60 * 1000, // 7 days
+    DEBOUNCE_DELAY: 300
 };
 
 // ===== STATE MANAGEMENT =====
@@ -36,8 +38,11 @@ class AppState {
         this.cookingHistory = this.loadFromStorage('COOKING_HISTORY', []);
         this.userPreferences = this.loadFromStorage('USER_PREFERENCES', this.getDefaultPreferences());
         this.mealPlan = this.loadFromStorage('MEAL_PLAN', {});
+        this.achievements = this.loadFromStorage('ACHIEVEMENTS', []);
+        this.cookingStreak = this.loadFromStorage('COOKING_STREAK', { current: 0, longest: 0, lastCooked: null });
         this.servingsMultiplier = 1;
         this.listeners = {};
+        this.currentWeekStart = this.getWeekStart(new Date());
     }
 
     loadFromStorage(key, defaultValue) {
@@ -66,14 +71,14 @@ class AppState {
             allergens: [],
             measurement: 'metric',
             theme: 'auto',
-            equipment: ['oven', 'microwave']
+            spiceLevel: 0,
+            difficulty: 'all',
+            language: 'en'
         };
     }
 
     on(event, callback) {
-        if (!this.listeners[event]) {
-            this.listeners[event] = [];
-        }
+        if (!this.listeners[event]) this.listeners[event] = [];
         this.listeners[event].push(callback);
     }
 
@@ -86,11 +91,14 @@ class AppState {
     // Recipe Management
     saveRecipe(recipe) {
         if (!this.savedRecipes.find(r => r.idMeal === recipe.idMeal)) {
-            this.savedRecipes.push(recipe);
+            this.savedRecipes.push({ ...recipe, savedAt: new Date().toISOString() });
             this.saveToStorage('SAVED_RECIPES', this.savedRecipes);
             UI.showToast('Recipe saved!', 'success');
             this.emit('recipe:saved', recipe);
+            this.checkAchievements();
+            return true;
         }
+        return false;
     }
 
     removeRecipe(recipeId) {
@@ -104,11 +112,11 @@ class AppState {
         return this.savedRecipes.some(r => r.idMeal === recipeId);
     }
 
-    // Shopping List Management
+    // Shopping List
     addToShoppingList(items) {
         items.forEach(item => {
-            if (!this.shoppingList.find(i => i.name === item.name)) {
-                this.shoppingList.push({ ...item, checked: false });
+            if (!this.shoppingList.find(i => i.name.toLowerCase() === item.name.toLowerCase())) {
+                this.shoppingList.push({ ...item, checked: false, addedAt: Date.now() });
             }
         });
         this.saveToStorage('SHOPPING_LIST', this.shoppingList);
@@ -133,30 +141,110 @@ class AppState {
         UI.updateCartBadge(0);
     }
 
-    // Cooking History
+    // Cooking History & Streaks
     addToCookingHistory(recipe) {
+        const today = new Date().toDateString();
+        const lastCooked = this.cookingStreak.lastCooked;
+        
+        // Update streak
+        if (lastCooked) {
+            const lastDate = new Date(lastCooked).toDateString();
+            const yesterday = new Date(Date.now() - 86400000).toDateString();
+            
+            if (lastDate === yesterday) {
+                this.cookingStreak.current++;
+            } else if (lastDate !== today) {
+                this.cookingStreak.current = 1;
+            }
+        } else {
+            this.cookingStreak.current = 1;
+        }
+        
+        this.cookingStreak.longest = Math.max(this.cookingStreak.longest, this.cookingStreak.current);
+        this.cookingStreak.lastCooked = new Date().toISOString();
+        this.saveToStorage('COOKING_STREAK', this.cookingStreak);
+        
+        // Add to history
         this.cookingHistory.unshift({
             ...recipe,
             cookedAt: new Date().toISOString()
         });
-        if (this.cookingHistory.length > 50) {
-            this.cookingHistory = this.cookingHistory.slice(0, 50);
+        if (this.cookingHistory.length > 100) {
+            this.cookingHistory = this.cookingHistory.slice(0, 100);
         }
         this.saveToStorage('COOKING_HISTORY', this.cookingHistory);
         this.emit('history:updated', this.cookingHistory);
+        this.checkAchievements();
     }
 
-    // User Preferences
-    updatePreferences(preferences) {
-        this.userPreferences = { ...this.userPreferences, ...preferences };
-        this.saveToStorage('USER_PREFERENCES', this.userPreferences);
-        this.emit('preferences:updated', this.userPreferences);
+    // Gamification - Achievements
+    checkAchievements() {
+        const newAchievements = [];
+        
+        // First Recipe
+        if (this.cookingHistory.length === 1 && !this.achievements.includes('first_recipe')) {
+            newAchievements.push({ id: 'first_recipe', title: 'First Meal!', icon: '🍳' });
+        }
+        
+        // Recipe Collector
+        if (this.savedRecipes.length >= 10 && !this.achievements.includes('collector_10')) {
+            newAchievements.push({ id: 'collector_10', title: 'Recipe Collector', icon: '📚' });
+        }
+        
+        // Cooking Streak
+        if (this.cookingStreak.current >= 7 && !this.achievements.includes('streak_7')) {
+            newAchievements.push({ id: 'streak_7', title: '7 Day Streak!', icon: '🔥' });
+        }
+        
+        // World Explorer
+        const uniqueCuisines = new Set(this.cookingHistory.map(r => r.strArea));
+        if (uniqueCuisines.size >= 5 && !this.achievements.includes('explorer_5')) {
+            newAchievements.push({ id: 'explorer_5', title: 'World Explorer', icon: '🌍' });
+        }
+        
+        if (newAchievements.length > 0) {
+            newAchievements.forEach(ach => {
+                this.achievements.push(ach.id);
+                UI.showAchievement(ach);
+            });
+            this.saveToStorage('ACHIEVEMENTS', this.achievements);
+        }
+    }
+
+    // Meal Planning
+    getWeekStart(date) {
+        const d = new Date(date);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        return new Date(d.setDate(diff));
+    }
+
+    addToMealPlan(date, mealType, recipe) {
+        const key = date.toISOString().split('T')[0];
+        if (!this.mealPlan[key]) this.mealPlan[key] = {};
+        this.mealPlan[key][mealType] = recipe;
+        this.saveToStorage('MEAL_PLAN', this.mealPlan);
+        this.emit('mealplan:updated', this.mealPlan);
+    }
+
+    removeFromMealPlan(date, mealType) {
+        const key = date.toISOString().split('T')[0];
+        if (this.mealPlan[key]) {
+            delete this.mealPlan[key][mealType];
+            if (Object.keys(this.mealPlan[key]).length === 0) {
+                delete this.mealPlan[key];
+            }
+            this.saveToStorage('MEAL_PLAN', this.mealPlan);
+            this.emit('mealplan:updated', this.mealPlan);
+        }
     }
 }
 
 // ===== API SERVICE =====
 class APIService {
     static cache = new Map();
+    static requestQueue = [];
+    static isProcessing = false;
 
     static async fetchWithCache(url, options = {}) {
         const cacheKey = url + JSON.stringify(options);
@@ -168,7 +256,7 @@ class APIService {
 
         try {
             const response = await fetch(url, options);
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             
             this.cache.set(cacheKey, {
@@ -178,12 +266,12 @@ class APIService {
             
             return data;
         } catch (error) {
-            console.error('API fetch error:', error);
+            console.error('API error:', error);
             throw error;
         }
     }
 
-    // TheMealDB API
+    // TheMealDB
     static async searchByIngredient(ingredient) {
         const url = `${CONFIG.API.THEMEALDB}/filter.php?i=${encodeURIComponent(ingredient)}`;
         return await this.fetchWithCache(url);
@@ -201,7 +289,6 @@ class APIService {
 
     static async getRandomRecipe() {
         const url = `${CONFIG.API.THEMEALDB}/random.php`;
-        // Don't use cache for random recipes
         const response = await fetch(url);
         return await response.json();
     }
@@ -212,28 +299,35 @@ class APIService {
         return results.flatMap(r => r.meals || []);
     }
 
-    // Search with African food support via Tasty API
+    static async filterByArea(area) {
+        const url = `${CONFIG.API.THEMEALDB}/filter.php?a=${encodeURIComponent(area)}`;
+        return await this.fetchWithCache(url);
+    }
+
+    static async filterByCategory(category) {
+        const url = `${CONFIG.API.THEMEALDB}/filter.php?c=${encodeURIComponent(category)}`;
+        return await this.fetchWithCache(url);
+    }
+
+    // African food support via Tasty API
     static async searchWithAfricanSupport(query) {
-        // First try TheMealDB
         let results = await this.searchByName(query);
         
-        // If no results and query might be African food, try Tasty API
-        const africanKeywords = ['jollof', 'fufu', 'egusi', 'suya', 'pounded yam', 'akara', 'moi moi', 'plantain', 'kenkey', 'banku', 'waakye', 'chin chin'];
-        const isAfricanQuery = africanKeywords.some(keyword => query.toLowerCase().includes(keyword));
+        const africanKeywords = ['jollof', 'fufu', 'egusi', 'suya', 'pounded yam', 'akara', 'moi moi', 
+                                 'plantain', 'kenkey', 'banku', 'waakye', 'chin chin', 'puff puff'];
+        const isAfricanQuery = africanKeywords.some(kw => query.toLowerCase().includes(kw));
         
         if ((!results.meals || results.meals.length === 0) && isAfricanQuery) {
             try {
-                const tastyResults = await this.getTastyRecipes(query, 'african');
+                const tastyResults = await this.getTastyRecipes(query);
                 if (tastyResults && tastyResults.results) {
-                    // Convert Tasty format to TheMealDB format
                     results.meals = tastyResults.results.slice(0, 6).map(recipe => ({
                         idMeal: recipe.id.toString(),
                         strMeal: recipe.name,
                         strMealThumb: recipe.thumbnail_url || recipe.beauty_url,
-                        strCategory: recipe.tags?.find(t => t.type === 'meal')?.display_name || 'Main Dish',
+                        strCategory: recipe.tags?.find(t => t.type === 'meal')?.display_name || 'Main',
                         strArea: 'African',
-                        strInstructions: recipe.instructions?.map(i => i.display_text).join('\n') || 'No instructions available',
-                        // Map ingredients
+                        strInstructions: recipe.instructions?.map(i => i.display_text).join('\n') || '',
                         ...this.mapTastyIngredients(recipe.sections?.[0]?.components || [])
                     }));
                 }
@@ -245,1649 +339,1176 @@ class APIService {
         return results;
     }
 
-    static mapTastyIngredients(components) {
-        const mapped = {};
-        components.slice(0, 20).forEach((comp, i) => {
-            const index = i + 1;
-            mapped[`strIngredient${index}`] = comp.ingredient?.name || '';
-            mapped[`strMeasure${index}`] = comp.measurements?.[0]?.quantity || '';
-        });
-        return mapped;
-    }
-
-    static async filterByCategory(category) {
-        const url = `${CONFIG.API.THEMEALDB}/filter.php?c=${encodeURIComponent(category)}`;
-        return await this.fetchWithCache(url);
-    }
-
-    static async filterByArea(area) {
-        const url = `${CONFIG.API.THEMEALDB}/filter.php?a=${encodeURIComponent(area)}`;
-        return await this.fetchWithCache(url);
-    }
-
-    // Edamam API for nutrition
-    static async getNutritionData(ingredients) {
-        const url = `https://api.edamam.com/api/nutrition-data?app_id=${CONFIG.API.EDAMAM_ID}&app_key=${CONFIG.API.EDAMAM_KEY}&ingr=${encodeURIComponent(ingredients)}`;
-        try {
-            return await this.fetchWithCache(url);
-        } catch (error) {
-            console.error('Nutrition API error:', error);
-            return null;
-        }
-    }
-
-    // Spoonacular API for substitutions
-    static async getIngredientSubstitutes(ingredient) {
-        const url = `https://api.spoonacular.com/food/ingredients/substitutes?ingredientName=${encodeURIComponent(ingredient)}&apiKey=${CONFIG.API.SPOONACULAR_KEY}`;
-        try {
-            return await this.fetchWithCache(url);
-        } catch (error) {
-            console.error('Substitutes API error:', error);
-            return null;
-        }
-    }
-
-    // Tasty API for video recipes
-    static async getTastyRecipes(query, tags = '') {
-        const url = `https://tasty.p.rapidapi.com/recipes/list?from=0&size=20&q=${encodeURIComponent(query)}${tags ? `&tags=${tags}` : ''}`;
-        try {
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'X-RapidAPI-Key': CONFIG.API.TASTY_KEY,
-                    'X-RapidAPI-Host': 'tasty.p.rapidapi.com'
-                }
-            });
-            return await response.json();
-        } catch (error) {
-            console.error('Tasty API error:', error);
-            return null;
-        }
-    }
-
-    // OpenFoodFacts for ingredient info
-    static async getIngredientInfo(barcode) {
-        const url = `${CONFIG.API.OPENFOODFACTS}/product/${barcode}.json`;
-        try {
-            return await this.fetchWithCache(url);
-        } catch (error) {
-            console.error('OpenFoodFacts API error:', error);
-            return null;
-        }
-    }
-
-    // Generate QR Code
-    static getQRCodeURL(data, size = 200) {
-        return `${CONFIG.API.QR_SERVER}?size=${size}x${size}&data=${encodeURIComponent(data)}`;
-    }
-}
-
-// ===== UI CONTROLLER =====
-class UI {
-    static showToast(message, type = 'info', duration = 3000) {
-        const container = document.getElementById('toast-container');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        
-        const icons = {
-            success: 'fa-check-circle',
-            error: 'fa-exclamation-circle',
-            info: 'fa-info-circle',
-            warning: 'fa-exclamation-triangle'
+    static async getTastyRecipes(query) {
+        const url = `https://tasty.p.rapidapi.com/recipes/list?from=0&size=6&q=${encodeURIComponent(query)}`;
+        const options = {
+            headers: {
+                'X-RapidAPI-Key': CONFIG.API.TASTY_KEY,
+                'X-RapidAPI-Host': 'tasty.p.rapidapi.com'
+            }
         };
-        
-        toast.innerHTML = `
-            <i class="fas ${icons[type]} toast-icon"></i>
-            <span class="toast-message">${message}</span>
-        `;
-        
-        container.appendChild(toast);
-        
-        setTimeout(() => {
-            toast.classList.add('removing');
-            setTimeout(() => toast.remove(), 300);
-        }, duration);
+        return await this.fetchWithCache(url, options);
     }
 
-    static showLoading() {
-        document.getElementById('loading-overlay').classList.add('active');
-    }
-
-    static hideLoading() {
-        document.getElementById('loading-overlay').classList.remove('active');
-    }
-
-    static updateCartBadge(count) {
-        const badge = document.getElementById('cart-badge');
-        if (badge) {
-            badge.textContent = count;
-            if (count > 0) {
-                badge.style.display = 'block';
-            } else {
-                badge.style.display = 'none';
+    static mapTastyIngredients(components) {
+        const ingredients = {};
+        components.forEach((comp, idx) => {
+            if (idx < 20) {
+                ingredients[`strIngredient${idx + 1}`] = comp.ingredient?.name || '';
+                ingredients[`strMeasure${idx + 1}`] = comp.measurements?.[0]?.quantity || '';
             }
-        }
-    }
-
-    static formatTime(minutes) {
-        if (minutes < 60) return `${minutes} mins`;
-        const hours = Math.floor(minutes / 60);
-        const mins = minutes % 60;
-        return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-    }
-
-    static generateRecipeCard(meal) {
-        const cookingTime = Math.floor(Math.random() * 45) + 15;
-        const difficulties = ['Easy', 'Medium', 'Advanced'];
-        const difficulty = difficulties[Math.floor(Math.random() * difficulties.length)];
-        const servings = Math.floor(Math.random() * 4) + 2;
-        
-        let title = meal.strMeal;
-        if (title.length > 50) {
-            title = title.substring(0, 50) + '...';
-        }
-        
-        const ingredients = [];
-        for (let i = 1; i <= 20; i++) {
-            const ingredient = meal[`strIngredient${i}`];
-            if (ingredient && ingredient.trim() !== '') {
-                ingredients.push(ingredient);
-                if (ingredients.length === 3) break;
-            }
-        }
-        
-        const rating = (Math.random() * 1.5 + 3.5).toFixed(1);
-        
-        return `
-            <div class="cards" data-meal-id="${meal.idMeal}" role="listitem">
-                <div class="top-card">
-                    <img src="${meal.strMealThumb}" alt="${meal.strMeal}" loading="lazy">
-                </div>
-                <div class="info-card">
-                    <div class="card-head">
-                        <h5>${title}</h5>
-                        <p>${cookingTime} mins | ${difficulty} | Serves ${servings}</p>
-                        <p>Ingredients: ${ingredients.join(', ')}</p>
-                    </div>
-                    <div class="rating-down">
-                        <div class="left-side">
-                            ⭐ <span>${rating}</span>
-                        </div>
-                        <div class="right-side">
-                            <i class="fas fa-arrow-right"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    static renderRecipeCards(meals, container) {
-        if (!meals || meals.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">🔍</div>
-                    <h3>No recipes found</h3>
-                    <p>Try searching for something else</p>
-                    <div class="empty-state-suggestions">
-                        <span class="suggestion-chip" onclick="app.search('chicken')">Chicken</span>
-                        <span class="suggestion-chip" onclick="app.search('pasta')">Pasta</span>
-                        <span class="suggestion-chip" onclick="app.search('vegetarian')">Vegetarian</span>
-                    </div>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = '';
-        meals.forEach((meal, index) => {
-            const cardHTML = this.generateRecipeCard(meal);
-            const temp = document.createElement('div');
-            temp.innerHTML = cardHTML;
-            const card = temp.firstElementChild;
-            
-            card.style.opacity = '0';
-            card.style.transform = 'translateY(20px)';
-            container.appendChild(card);
-            
-            setTimeout(() => {
-                card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-                card.style.opacity = '1';
-                card.style.transform = 'translateY(0)';
-            }, 100 * index);
         });
-    }
-
-    static displayLoadingCards(container) {
-        const loadingHTML = Array(6).fill().map((_, i) => 
-            `<div class="loading-card" style="--delay: ${i * 0.1}s"></div>`
-        ).join('');
-        container.innerHTML = loadingHTML;
-    }
-}
-
-// ===== RECIPE DETAIL RENDERER =====
-class RecipeDetailRenderer {
-    static async render(meal, servings = 1) {
-        const ingredients = this.extractIngredients(meal, servings);
-        const directions = this.formatDirections(meal.strInstructions);
-        const nutrition = this.generateNutrition();
-        const substitutions = await this.getSubstitutions(ingredients);
-        
-        return `
-            <div class="recipe-detail">
-                <div class="recipe-image-container">
-                    <img src="${meal.strMealThumb}" alt="${meal.strMeal}">
-                </div>
-                
-                <div class="recipe-header">
-                    <div class="recipe-tags">
-                        <span class="recipe-tag">🍽️ ${meal.strCategory || 'Main Dish'}</span>
-                        <span class="recipe-tag">🌍 ${meal.strArea || 'International'}</span>
-                    </div>
-                    
-                    <h2 class="recipe-title">${meal.strMeal}</h2>
-                    
-                    <div class="recipe-meta">
-                        <div class="meta-item">
-                            <i class="fas fa-clock"></i>
-                            <span>${Math.floor(Math.random() * 45) + 15} mins</span>
-                        </div>
-                        <div class="meta-item">
-                            <i class="fas fa-signal"></i>
-                            <span>${['Easy', 'Medium', 'Advanced'][Math.floor(Math.random() * 3)]}</span>
-                        </div>
-                        <div class="meta-item">
-                            <i class="fas fa-users"></i>
-                            <span>Serves ${servings}</span>
-                        </div>
-                    </div>
-                    
-                    <div class="recipe-rating">
-                        <span class="stars">⭐⭐⭐⭐⭐</span>
-                        <span class="rating-value">${(Math.random() * 1.5 + 3.5).toFixed(1)}</span>
-                    </div>
-                </div>
-                
-                <div class="servings-scaler">
-                    <span class="scaler-label">Servings:</span>
-                    <div class="scaler-controls">
-                        <button class="scaler-btn" onclick="app.changeServings(-1)">
-                            <i class="fas fa-minus"></i>
-                        </button>
-                        <span class="scaler-value">${servings}</span>
-                        <button class="scaler-btn" onclick="app.changeServings(1)">
-                            <i class="fas fa-plus"></i>
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="recipe-actions">
-                    <button class="action-btn primary" onclick="app.startCookingMode('${meal.idMeal}')">
-                        <i class="fas fa-play"></i> Start Cooking
-                    </button>
-                    <button class="action-btn" onclick="app.toggleSaveRecipe('${meal.idMeal}')">
-                        <i class="fas fa-bookmark"></i> ${app.state.isRecipeSaved(meal.idMeal) ? 'Saved' : 'Save'}
-                    </button>
-                    <button class="action-btn" onclick="app.shareRecipe('${meal.idMeal}')">
-                        <i class="fas fa-share-nodes"></i> Share
-                    </button>
-                    <button class="action-btn" onclick="app.addIngredientsToList('${meal.idMeal}')">
-                        <i class="fas fa-shopping-cart"></i> Add to List
-                    </button>
-                    <button class="action-btn" onclick="app.downloadRecipeCard('${meal.idMeal}')">
-                        <i class="fas fa-download"></i> Download
-                    </button>
-                    <button class="action-btn" onclick="app.printRecipe()">
-                        <i class="fas fa-print"></i> Print
-                    </button>
-                </div>
-                
-                <div class="recipe-section">
-                    <h3 class="section-title">
-                        <i class="fas fa-list-ul"></i>
-                        Ingredients
-                    </h3>
-                    <ul class="ingredients-list" id="ingredients-list">
-                        ${ingredients.map((ing, i) => `
-                            <li class="ingredient-item" data-index="${i}">
-                                <span class="ingredient-checkbox"></span>
-                                <span class="ingredient-text">${ing}</span>
-                            </li>
-                        `).join('')}
-                    </ul>
-                    <div class="ingredient-progress">
-                        <span id="ingredient-progress-text">0/${ingredients.length} ingredients gathered</span>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: 0%" id="ingredient-progress-bar"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                ${substitutions.length > 0 ? `
-                    <div class="recipe-section">
-                        <h3 class="section-title">
-                            <i class="fas fa-exchange-alt"></i>
-                            Smart Substitutions
-                        </h3>
-                        ${substitutions.map(sub => `
-                            <div class="substitution-item">
-                                <div class="substitution-original">${sub.original}</div>
-                                <div class="substitution-alternatives">
-                                    ${sub.alternatives.map(alt => 
-                                        `<span class="substitution-tag">${alt}</span>`
-                                    ).join('')}
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                ` : ''}
-                
-                <div class="recipe-section">
-                    <h3 class="section-title">
-                        <i class="fas fa-tasks"></i>
-                        Directions
-                    </h3>
-                    <ol class="directions-list">
-                        ${directions.map(dir => `
-                            <li class="direction-item">
-                                <p>${dir}</p>
-                            </li>
-                        `).join('')}
-                    </ol>
-                </div>
-                
-                <div class="recipe-section">
-                    <h3 class="section-title">
-                        <i class="fas fa-chart-pie"></i>
-                        Nutrition Facts
-                    </h3>
-                    <div class="nutrition-grid">
-                        ${Object.entries(nutrition).map(([key, value]) => {
-                            const percentage = Math.min((value / this.getNutritionMax(key)) * 100, 100);
-                            const circumference = 2 * Math.PI * 36;
-                            const offset = circumference - (percentage / 100) * circumference;
-                            
-                            return `
-                                <div class="nutrition-item">
-                                    <div class="nutrition-circle">
-                                        <svg width="80" height="80">
-                                            <circle class="nutrition-circle-bg" cx="40" cy="40" r="36"/>
-                                            <circle class="nutrition-circle-fill" cx="40" cy="40" r="36"
-                                                    stroke-dasharray="${circumference}"
-                                                    stroke-dashoffset="${offset}"/>
-                                        </svg>
-                                        <div class="nutrition-value">${value}${key === 'Calories' ? '' : 'g'}</div>
-                                    </div>
-                                    <div class="nutrition-label">${key}</div>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-                    <p class="nutrition-disclaimer">
-                        This analysis is an estimate based on available ingredients and this preparation. 
-                        It should not substitute for a dietitian's or nutritionist's advice.
-                    </p>
-                </div>
-            </div>
-        `;
-    }
-
-    static extractIngredients(meal, servings = 1) {
-        const ingredients = [];
-        for (let i = 1; i <= 20; i++) {
-            const ingredient = meal[`strIngredient${i}`];
-            const measure = meal[`strMeasure${i}`];
-            if (ingredient && ingredient.trim() !== '') {
-                // Scale measurements
-                let scaledMeasure = measure.trim();
-                if (servings !== 1) {
-                    scaledMeasure = this.scaleMeasurement(measure, servings);
-                }
-                ingredients.push(`${scaledMeasure} ${ingredient.trim()}`);
-            }
-        }
         return ingredients;
     }
 
-    static scaleMeasurement(measure, multiplier) {
-        const numberMatch = measure.match(/(\d+(\.\d+)?)/);
-        if (numberMatch) {
-            const num = parseFloat(numberMatch[1]) * multiplier;
-            return measure.replace(numberMatch[1], num.toFixed(2));
-        }
-        return measure;
-    }
-
-    static formatDirections(instructions) {
-        return instructions
-            .split(/\r?\n/)
-            .filter(line => line.trim() !== '')
-            .map(line => line.replace(/^STEP \d+:?\s*/i, '').trim())
-            .filter(line => line.length > 0);
-    }
-
-    static generateNutrition() {
-        return {
-            Calories: Math.floor(Math.random() * 400) + 200,
-            Protein: Math.floor(Math.random() * 30) + 10,
-            Carbs: Math.floor(Math.random() * 50) + 20,
-            Fat: Math.floor(Math.random() * 25) + 5,
-            Fiber: Math.floor(Math.random() * 15) + 2
-        };
-    }
-
-    static getNutritionMax(key) {
-        const maxValues = {
-            Calories: 800,
-            Protein: 50,
-            Carbs: 100,
-            Fat: 40,
-            Fiber: 30
-        };
-        return maxValues[key] || 100;
-    }
-
-    static async getSubstitutions(ingredients) {
-        // Common substitutions database
-        const commonSubs = {
-            'butter': ['coconut oil', 'olive oil', 'margarine'],
-            'egg': ['flax egg', 'chia egg', 'applesauce'],
-            'milk': ['almond milk', 'oat milk', 'soy milk'],
-            'flour': ['almond flour', 'coconut flour', 'oat flour'],
-            'sugar': ['honey', 'maple syrup', 'stevia']
-        };
-
-        const subs = [];
-        ingredients.slice(0, 3).forEach(ing => {
-            const ingredient = ing.toLowerCase();
-            for (const [key, alternatives] of Object.entries(commonSubs)) {
-                if (ingredient.includes(key)) {
-                    subs.push({
-                        original: ing,
-                        alternatives
-                    });
-                }
-            }
-        });
-
-        return subs;
-    }
-}
-
-// ===== COOKING MODE CONTROLLER =====
-class CookingMode {
-    constructor() {
-        this.isActive = false;
-        this.currentStep = 0;
-        this.steps = [];
-        this.timers = [];
-        this.recognition = null;
-        this.initVoiceRecognition();
-    }
-
-    initVoiceRecognition() {
-        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            this.recognition = new SpeechRecognition();
-            this.recognition.continuous = true;
-            this.recognition.interimResults = false;
-            
-            this.recognition.onresult = (event) => {
-                const command = event.results[event.results.length - 1][0].transcript.toLowerCase();
-                this.handleVoiceCommand(command);
-            };
-        }
-    }
-
-    start(recipe) {
-        this.isActive = true;
-        this.currentStep = 0;
-        this.steps = RecipeDetailRenderer.formatDirections(recipe.strInstructions);
-        
-        const modal = document.getElementById('cooking-mode');
-        modal.classList.add('active');
-        document.getElementById('cooking-mode-title').textContent = recipe.strMeal;
-        document.getElementById('total-steps').textContent = this.steps.length;
-        
-        this.displayStep();
-        this.startVoiceRecognition();
-        
-        // Keep screen awake
-        if ('wakeLock' in navigator) {
-            navigator.wakeLock.request('screen').catch(err => console.log(err));
-        }
-    }
-
-    displayStep() {
-        document.getElementById('current-step').textContent = this.currentStep + 1;
-        document.getElementById('step-instruction').textContent = this.steps[this.currentStep];
-        
-        // Update button states
-        document.getElementById('prev-step').disabled = this.currentStep === 0;
-        document.getElementById('next-step').textContent = 
-            this.currentStep === this.steps.length - 1 ? 'Finish' : 'Next';
-    }
-
-    nextStep() {
-        if (this.currentStep < this.steps.length - 1) {
-            this.currentStep++;
-            this.displayStep();
-        } else {
-            this.finish();
-        }
-    }
-
-    prevStep() {
-        if (this.currentStep > 0) {
-            this.currentStep--;
-            this.displayStep();
-        }
-    }
-
-    startVoiceRecognition() {
-        if (this.recognition) {
-            try {
-                this.recognition.start();
-                document.getElementById('voice-indicator').style.display = 'flex';
-            } catch (error) {
-                console.log('Voice recognition not available:', error);
-            }
-        }
-    }
-
-    stopVoiceRecognition() {
-        if (this.recognition) {
-            try {
-                this.recognition.stop();
-            } catch (error) {
-                console.log('Error stopping recognition:', error);
-            }
-        }
-    }
-
-    handleVoiceCommand(command) {
-        if (command.includes('next')) {
-            this.nextStep();
-            UI.showToast('Moving to next step', 'info');
-        } else if (command.includes('previous') || command.includes('back')) {
-            this.prevStep();
-            UI.showToast('Going back', 'info');
-        } else if (command.includes('repeat')) {
-            this.displayStep();
-            UI.showToast('Repeating step', 'info');
-        } else if (command.includes('timer')) {
-            this.showTimerDialog();
-        }
-    }
-
-    showTimerDialog() {
-        const duration = prompt('Set timer for how many minutes?');
-        if (duration && !isNaN(duration)) {
-            this.addTimer(parseInt(duration), `Step ${this.currentStep + 1}`);
-        }
-    }
-
-    addTimer(minutes, label) {
-        const timer = {
-            id: Date.now(),
-            duration: minutes * 60,
-            remaining: minutes * 60,
-            label
-        };
-        
-        this.timers.push(timer);
-        this.renderTimers();
-        
-        const interval = setInterval(() => {
-            timer.remaining--;
-            if (timer.remaining <= 0) {
-                clearInterval(interval);
-                this.timerComplete(timer);
-            } else {
-                this.renderTimers();
-            }
-        }, 1000);
-        
-        timer.interval = interval;
-    }
-
-    timerComplete(timer) {
-        this.timers = this.timers.filter(t => t.id !== timer.id);
-        this.renderTimers();
-        
-        // Play sound and show notification
-        UI.showToast(`Timer complete: ${timer.label}`, 'success', 5000);
-        
-        if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('Timer Complete', {
-                body: timer.label,
-                icon: '/icon.png'
-            });
-        }
-    }
-
-    renderTimers() {
-        const container = document.getElementById('active-timers');
-        container.innerHTML = this.timers.map(timer => {
-            const minutes = Math.floor(timer.remaining / 60);
-            const seconds = timer.remaining % 60;
-            return `
-                <div class="timer-item">
-                    <span class="timer-time">${minutes}:${seconds.toString().padStart(2, '0')}</span>
-                    <span class="timer-label">${timer.label}</span>
-                    <button class="timer-cancel" onclick="cookingMode.cancelTimer(${timer.id})">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-            `;
-        }).join('');
-    }
-
-    cancelTimer(id) {
-        const timer = this.timers.find(t => t.id === id);
-        if (timer) {
-            clearInterval(timer.interval);
-            this.timers = this.timers.filter(t => t.id !== id);
-            this.renderTimers();
-        }
-    }
-
-    finish() {
-        this.isActive = false;
-        this.stopVoiceRecognition();
-        document.getElementById('cooking-mode').classList.remove('active');
-        
-        // Add to cooking history
-        if (app.state.currentRecipe) {
-            app.state.addToCookingHistory(app.state.currentRecipe);
-        }
-        
-        UI.showToast('Great job! Recipe completed! 🎉', 'success');
-    }
-
-    exit() {
-        if (confirm('Are you sure you want to exit cooking mode?')) {
-            this.finish();
+    // Spoonacular for nutrition
+    static async getNutrition(recipeId) {
+        const url = `https://api.spoonacular.com/recipes/${recipeId}/nutritionWidget.json?apiKey=${CONFIG.API.SPOONACULAR_KEY}`;
+        try {
+            return await this.fetchWithCache(url);
+        } catch (error) {
+            return null;
         }
     }
 }
 
-// ===== PAGE NAVIGATION =====
-class PageNavigator {
-    static navigateTo(pageName) {
-        // Hide all pages
-        document.querySelectorAll('.page').forEach(page => {
-            page.classList.remove('active');
-        });
-        
-        // Show selected page
-        const page = document.getElementById(`page-${pageName}`);
-        if (page) {
-            page.classList.add('active');
-            
-            // Update dock
-            document.querySelectorAll('.dock-item').forEach(item => {
-                item.classList.remove('active');
-                if (item.dataset.page === pageName) {
-                    item.classList.add('active');
-                }
-            });
-            
-            // Load page content
-            this.loadPageContent(pageName);
-            
-            // Update state
-            app.state.currentPage = pageName;
-            
-            // Scroll to top
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-    }
-
-    static loadPageContent(pageName) {
-        switch(pageName) {
-            case 'explore':
-                app.loadExplorePage();
-                break;
-            case 'my-kitchen':
-                app.loadMyKitchen();
-                break;
-            case 'shopping-list':
-                app.loadShoppingList();
-                break;
-            case 'profile':
-                app.loadProfile();
-                break;
-        }
-    }
-}
-
-// ===== MAIN APPLICATION =====
-class WhatsCookingApp {
-    constructor() {
-        this.state = new AppState();
-        this.cookingMode = new CookingMode();
-        this.lastScrollTop = 0;
-        this.init();
-    }
-
-    init() {
-        console.log('🍳 What\'s Cooking - Initializing...');
-        
-        // Apply theme
-        this.applyTheme();
-        
-        // Setup event listeners
+// ===== UI MANAGER =====
+class UI {
+    static init() {
         this.setupEventListeners();
-        
-        // Load initial recipes
-        this.loadRandomRecipes();
-        
-        // Setup smart dock behavior
-        this.setupSmartDock();
-        
-        // Request notification permission
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
-        }
-        
-        // Initialize PWA
+        this.updateBadges();
+        this.renderFeaturedRecipes();
         this.initPWA();
-        
-        // Update cart badge
-        UI.updateCartBadge(this.state.shoppingList.filter(i => !i.checked).length);
-        
-        console.log('✅ App initialized successfully!');
+        this.setupIntersectionObserver();
+        this.hideLoadingScreen();
     }
 
-    setupEventListeners() {
-        // Search functionality
-        const searchBar = document.getElementById('search-bar');
-        const searchButton = document.getElementById('button');
-        
-        searchBar.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.search();
+    static hideLoadingScreen() {
+        setTimeout(() => {
+            document.getElementById('loadingScreen').style.opacity = '0';
+            setTimeout(() => {
+                document.getElementById('loadingScreen').style.display = 'none';
+            }, 300);
+        }, 1000);
+    }
+
+    static setupEventListeners() {
+        // Navigation
+        document.querySelectorAll('.dock-item').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const page = e.currentTarget.dataset.page;
+                if (page) this.navigateTo(page);
+            });
         });
-        
-        searchButton.addEventListener('click', () => {
-            if (searchBar.value.trim()) {
-                this.search();
-            } else {
-                this.loadRandomRecipes();
+
+        // Shopping cart button
+        document.getElementById('shoppingCartBtn').addEventListener('click', () => {
+            this.openShoppingCart();
+        });
+
+        // Search
+        const searchInput = document.getElementById('searchInput');
+        searchInput.addEventListener('input', debounce((e) => {
+            this.handleSearch(e.target.value);
+        }, CONFIG.DEBOUNCE_DELAY));
+
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.handleSearch(e.target.value);
             }
         });
 
-        // Voice search
-        document.getElementById('voice-search-btn')?.addEventListener('click', () => {
+        // Voice Search
+        document.getElementById('voiceSearchBtn').addEventListener('click', () => {
             this.startVoiceSearch();
         });
 
-        // Scan fridge button
-        document.getElementById('scan-fridge-btn')?.addEventListener('click', () => {
-            this.scanFridge();
+        // Visual Search
+        document.getElementById('visualSearchBtn').addEventListener('click', () => {
+            this.openModal('imageUploadModal');
         });
-        
-        // Ingredient tags
-        document.querySelectorAll('.ingredient').forEach(tag => {
-            tag.addEventListener('click', () => {
-                searchBar.value = tag.textContent;
-                this.search();
+
+        // Image upload
+        document.getElementById('imageInput').addEventListener('change', (e) => {
+            this.handleImageUpload(e);
+        });
+
+        // Quick actions
+        document.getElementById('randomRecipeBtn').addEventListener('click', () => {
+            this.loadRandomRecipe();
+        });
+
+        document.getElementById('trendingBtn').addEventListener('click', () => {
+            this.loadTrendingRecipes();
+        });
+
+        document.getElementById('quickMealsBtn').addEventListener('click', () => {
+            this.filterRecipes('quick');
+        });
+
+        document.getElementById('healthyBtn').addEventListener('click', () => {
+            this.filterRecipes('healthy');
+        });
+
+        // Region cards
+        document.querySelectorAll('.region-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                const region = e.currentTarget.dataset.region;
+                this.loadRegionalRecipes(region);
             });
-            
-            // Make tags keyboard accessible
-            tag.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    searchBar.value = tag.textContent;
-                    this.search();
+        });
+
+        // Filter chips
+        document.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.addEventListener('click', (e) => {
+                const filter = e.target.dataset.filter;
+                if (filter) {
+                    this.applyQuickFilter(filter);
                 }
             });
         });
-        
-        // Recipe cards click delegation
-        document.getElementById('recipe-cards').addEventListener('click', (e) => {
-            const card = e.target.closest('.cards');
-            if (card) {
-                this.showRecipeDetail(card.dataset.mealId);
+
+        // More filters button
+        document.getElementById('moreFiltersBtn').addEventListener('click', () => {
+            this.openModal('advancedFiltersModal');
+        });
+
+        // Apply filters
+        document.getElementById('applyFiltersBtn').addEventListener('click', () => {
+            this.applyAdvancedFilters();
+        });
+
+        // Reset filters
+        document.getElementById('resetFiltersBtn').addEventListener('click', () => {
+            this.resetFilters();
+        });
+
+        // Shopping list actions
+        document.getElementById('clearCartBtn').addEventListener('click', () => {
+            if (confirm('Clear all items?')) {
+                state.clearShoppingList();
+                this.renderShoppingList();
             }
         });
-        
-        // Drawer controls
-        document.getElementById('close-drawer').addEventListener('click', () => {
-            this.closeDrawer();
+
+        document.getElementById('shareCartBtn').addEventListener('click', () => {
+            this.shareShoppingList();
         });
-        
-        document.getElementById('drawer-overlay').addEventListener('click', () => {
-            this.closeDrawer();
-        });
-        
-        // Cooking mode controls
-        document.getElementById('exit-cooking-mode')?.addEventListener('click', () => {
-            this.cookingMode.exit();
-        });
-        
-        document.getElementById('prev-step')?.addEventListener('click', () => {
-            this.cookingMode.prevStep();
-        });
-        
-        document.getElementById('next-step')?.addEventListener('click', () => {
-            this.cookingMode.nextStep();
-        });
-        
-        document.getElementById('timer-btn')?.addEventListener('click', () => {
-            this.cookingMode.showTimerDialog();
-        });
-        
-        // Dock navigation
-        document.querySelectorAll('.dock-item').forEach(item => {
-            item.addEventListener('click', () => {
-                PageNavigator.navigateTo(item.dataset.page);
+
+        // Close modals
+        document.querySelectorAll('.close-modal, .modal-overlay').forEach(el => {
+            el.addEventListener('click', (e) => {
+                if (e.target.classList.contains('close-modal') || e.target.classList.contains('modal-overlay')) {
+                    e.target.closest('.modal').classList.remove('active');
+                }
             });
         });
-        
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                this.closeDrawer();
-                if (this.cookingMode.isActive) {
-                    this.cookingMode.exit();
+
+        // Close drawer
+        document.querySelectorAll('.close-drawer, .drawer-overlay').forEach(el => {
+            el.addEventListener('click', (e) => {
+                if (e.target.classList.contains('close-drawer') || e.target.classList.contains('drawer-overlay')) {
+                    document.getElementById('recipeDrawer').classList.remove('active');
                 }
+            });
+        });
+
+        // Meal plan navigation
+        document.getElementById('prevWeekBtn')?.addEventListener('click', () => {
+            this.changeMealPlanWeek(-1);
+        });
+
+        document.getElementById('nextWeekBtn')?.addEventListener('click', () => {
+            this.changeMealPlanWeek(1);
+        });
+
+        // Generate shopping list from meal plan
+        document.getElementById('generateShoppingListBtn')?.addEventListener('click', () => {
+            this.generateShoppingListFromMealPlan();
+        });
+
+        // Clear week
+        document.getElementById('clearWeekBtn')?.addEventListener('click', () => {
+            if (confirm('Clear this week\'s meal plan?')) {
+                this.clearMealPlanWeek();
             }
+        });
+
+        // Saved recipe search
+        document.getElementById('savedSearchInput')?.addEventListener('input', debounce((e) => {
+            this.filterSavedRecipes(e.target.value);
+        }, 300));
+
+        // Discover filters
+        document.getElementById('cuisineFilter')?.addEventListener('change', () => {
+            this.applyDiscoverFilters();
+        });
+
+        document.getElementById('categoryFilter')?.addEventListener('change', () => {
+            this.applyDiscoverFilters();
+        });
+
+        document.getElementById('dietFilter')?.addEventListener('change', () => {
+            this.applyDiscoverFilters();
         });
     }
 
-    subscribeNewsletter(form) {
-        const email = form.querySelector('input[type="email"]').value;
-        UI.showToast(`Thanks for subscribing with ${email}! 🎉`, 'success');
-        form.reset();
+    static navigateTo(page) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.dock-item').forEach(b => b.classList.remove('active'));
+        
+        document.getElementById(`${page}Page`).classList.add('active');
+        document.querySelector(`[data-page="${page}"]`).classList.add('active');
+        
+        state.currentPage = page;
+        
+        // Load page-specific content
+        if (page === 'saved') {
+            this.renderSavedRecipes();
+        } else if (page === 'meal-plan') {
+            this.renderMealPlan();
+        } else if (page === 'discover') {
+            this.renderDiscoverPage();
+        }
     }
 
-    setupSmartDock() {
-        let lastScroll = 0;
-        const dock = document.getElementById('smart-dock');
-        
-        window.addEventListener('scroll', () => {
-            const currentScroll = window.pageYOffset;
+    static async handleSearch(query) {
+        if (!query.trim()) {
+            document.getElementById('autocompleteDropdown').classList.add('hidden');
+            return;
+        }
+
+        try {
+            UI.showLoading('featuredRecipes');
+            const results = await APIService.searchWithAfricanSupport(query);
             
-            if (currentScroll > 300) {
-                if (currentScroll < lastScroll) {
-                    // Scrolling up
-                    dock.classList.add('visible');
-                } else {
-                    // Scrolling down
-                    dock.classList.remove('visible');
+            if (results.meals) {
+                state.searchResults = results.meals;
+                this.renderRecipeGrid('featuredRecipes', results.meals);
+                this.showAutocomplete(results.meals.slice(0, 5));
+            } else {
+                this.renderEmptyState('featuredRecipes', 'No recipes found', 'Try a different search term');
+            }
+        } catch (error) {
+            this.showError('Search failed. Please try again.');
+        }
+    }
+
+    static showAutocomplete(recipes) {
+        const dropdown = document.getElementById('autocompleteDropdown');
+        if (recipes.length === 0) {
+            dropdown.classList.add('hidden');
+            return;
+        }
+
+        dropdown.innerHTML = recipes.map(recipe => `
+            <div class="autocomplete-item" data-id="${recipe.idMeal}">
+                <img src="${recipe.strMealThumb}" alt="${recipe.strMeal}">
+                <div>
+                    <div class="autocomplete-title">${recipe.strMeal}</div>
+                    <div class="autocomplete-meta">${recipe.strCategory || ''} ${recipe.strArea ? '• ' + recipe.strArea : ''}</div>
+                </div>
+            </div>
+        `).join('');
+
+        dropdown.querySelectorAll('.autocomplete-item').forEach(item => {
+            item.addEventListener('click', async () => {
+                const id = item.dataset.id;
+                await this.showRecipeDetail(id);
+                dropdown.classList.add('hidden');
+            });
+        });
+
+        dropdown.classList.remove('hidden');
+    }
+
+    static async loadRandomRecipe() {
+        try {
+            UI.showToast('Finding a surprise recipe...', 'info');
+            const result = await APIService.getRandomRecipe();
+            if (result.meals && result.meals[0]) {
+                await this.showRecipeDetail(result.meals[0].idMeal);
+            }
+        } catch (error) {
+            UI.showError('Failed to load recipe');
+        }
+    }
+
+    static async loadTrendingRecipes() {
+        try {
+            UI.showLoading('featuredRecipes');
+            const recipes = await APIService.getMultipleRandomRecipes(8);
+            this.renderRecipeGrid('featuredRecipes', recipes);
+            this.navigateTo('home');
+        } catch (error) {
+            UI.showError('Failed to load trending recipes');
+        }
+    }
+
+    static async loadRegionalRecipes(region) {
+        try {
+            UI.showLoading('featuredRecipes');
+            const areaMap = {
+                'african': 'Moroccan', // TheMealDB has limited African, but we'll enhance with Tasty
+                'italian': 'Italian',
+                'asian': 'Chinese',
+                'mexican': 'Mexican'
+            };
+            
+            const area = areaMap[region];
+            let results;
+            
+            if (region === 'african') {
+                // Try common African dishes
+                results = await APIService.searchWithAfricanSupport('jollof');
+                if (!results.meals) {
+                    results = await APIService.filterByArea(area);
                 }
             } else {
-                dock.classList.remove('visible');
+                results = await APIService.filterByArea(area);
             }
             
-            lastScroll = currentScroll;
-        });
+            if (results.meals) {
+                this.renderRecipeGrid('featuredRecipes', results.meals);
+                this.navigateTo('home');
+                window.scrollTo({ top: document.querySelector('.content-section').offsetTop - 100, behavior: 'smooth' });
+            }
+        } catch (error) {
+            UI.showError('Failed to load recipes');
+        }
     }
 
-    async loadRandomRecipes() {
-        const container = document.getElementById('recipe-cards');
-        UI.displayLoadingCards(container);
-        
-        document.getElementById('features-recipe').querySelector('h2').textContent = 'Featured Recipes';
-        
+    static async renderFeaturedRecipes() {
         try {
-            // Fetch truly random recipes (no cache)
             const recipes = await APIService.getMultipleRandomRecipes(6);
-            UI.renderRecipeCards(recipes, container);
+            this.renderRecipeGrid('featuredRecipes', recipes);
         } catch (error) {
-            console.error('Error loading recipes:', error);
-            UI.showToast('Failed to load recipes. Please try again.', 'error');
+            console.error('Failed to load featured recipes');
         }
     }
 
-    async search(query) {
-        const searchBar = document.getElementById('search-bar');
-        const searchQuery = query || searchBar.value.trim();
-        
-        if (!searchQuery) return;
-        
-        const container = document.getElementById('recipe-cards');
-        UI.displayLoadingCards(container);
-        
-        try {
-            // Try ingredient search first
-            let data = await APIService.searchByIngredient(searchQuery);
-            
-            // If no results, try name search with African support
-            if (!data.meals) {
-                data = await APIService.searchWithAfricanSupport(searchQuery);
-            }
-            
-            // Update heading
-            const heading = document.getElementById('features-recipe').querySelector('h2');
-            heading.textContent = data.meals ? 
-                `Results for "${searchQuery}"` : 
-                `No results for "${searchQuery}"`;
-            
-            UI.renderRecipeCards(data.meals, container);
-            
-            // Scroll to results
-            setTimeout(() => {
-                document.getElementById('cards-section').scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'start'
-                });
-            }, 300);
-            
-        } catch (error) {
-            console.error('Search error:', error);
-            UI.showToast('Search failed. Please try again.', 'error');
-        }
-    }
+    static renderRecipeGrid(containerId, recipes) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
 
-    startVoiceSearch() {
-        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            const recognition = new SpeechRecognition();
-            
-            const btn = document.getElementById('voice-search-btn');
-            btn.classList.add('listening');
-            
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                document.getElementById('search-bar').value = transcript;
-                this.search(transcript);
-                btn.classList.remove('listening');
-            };
-            
-            recognition.onerror = () => {
-                btn.classList.remove('listening');
-                UI.showToast('Voice search failed', 'error');
-            };
-            
-            recognition.start();
-        } else {
-            UI.showToast('Voice search not supported', 'error');
-        }
-    }
-
-    async scanFridge() {
-        UI.showToast('Camera feature coming soon! 📸', 'info');
-        // Placeholder for camera integration
-    }
-
-    async showRecipeDetail(recipeId) {
-        try {
-            UI.showLoading();
-            const data = await APIService.getRecipeDetails(recipeId);
-            
-            if (data.meals && data.meals.length > 0) {
-                const meal = data.meals[0];
-                this.state.currentRecipe = meal;
-                this.state.servingsMultiplier = 1;
-                
-                const drawerBody = document.getElementById('drawer-body');
-                drawerBody.innerHTML = await RecipeDetailRenderer.render(meal, 1);
-                
-                // Setup ingredient checklist
-                this.setupIngredientChecklist();
-                
-                // Open drawer
-                this.openDrawer();
-            }
-            
-            UI.hideLoading();
-        } catch (error) {
-            UI.hideLoading();
-            console.error('Error loading recipe details:', error);
-            UI.showToast('Failed to load recipe details', 'error');
-        }
-    }
-
-    setupIngredientChecklist() {
-        const items = document.querySelectorAll('.ingredient-item');
-        let checkedCount = 0;
+        container.innerHTML = recipes.map(recipe => this.createRecipeCard(recipe)).join('');
         
-        items.forEach(item => {
-            item.addEventListener('click', () => {
-                item.classList.toggle('checked');
-                checkedCount = document.querySelectorAll('.ingredient-item.checked').length;
-                
-                const progress = (checkedCount / items.length) * 100;
-                document.getElementById('ingredient-progress-bar').style.width = `${progress}%`;
-                document.getElementById('ingredient-progress-text').textContent = 
-                    `${checkedCount}/${items.length} ingredients gathered`;
+        // Add click handlers
+        container.querySelectorAll('.recipe-card').forEach(card => {
+            card.addEventListener('click', async (e) => {
+                if (!e.target.closest('.save-btn')) {
+                    const id = card.dataset.id;
+                    await this.showRecipeDetail(id);
+                }
+            });
+        });
+
+        // Add save button handlers
+        container.querySelectorAll('.save-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const card = e.target.closest('.recipe-card');
+                const recipe = recipes.find(r => r.idMeal === card.dataset.id);
+                if (recipe) {
+                    const saved = state.saveRecipe(recipe);
+                    if (saved) {
+                        e.target.classList.add('saved');
+                        e.target.innerHTML = '<i class="fas fa-heart"></i>';
+                        this.updateBadges();
+                    }
+                }
             });
         });
     }
 
-    openDrawer() {
-        document.getElementById('recipe-drawer').classList.add('active');
-    }
-
-    closeDrawer() {
-        document.getElementById('recipe-drawer').classList.remove('active');
-    }
-
-    async changeServings(delta) {
-        const newServings = Math.max(1, this.state.servingsMultiplier + delta);
-        this.state.servingsMultiplier = newServings;
-        
-        if (this.state.currentRecipe) {
-            const drawerBody = document.getElementById('drawer-body');
-            drawerBody.innerHTML = await RecipeDetailRenderer.render(
-                this.state.currentRecipe, 
-                newServings
-            );
-            this.setupIngredientChecklist();
-        }
-    }
-
-    toggleSaveRecipe(recipeId) {
-        if (this.state.isRecipeSaved(recipeId)) {
-            this.state.removeRecipe(recipeId);
-        } else if (this.state.currentRecipe) {
-            this.state.saveRecipe(this.state.currentRecipe);
-        }
-        
-        // Update button text
-        const btn = event.target.closest('.action-btn');
-        if (btn) {
-            btn.innerHTML = this.state.isRecipeSaved(recipeId) ?
-                '<i class="fas fa-bookmark"></i> Saved' :
-                '<i class="fas fa-bookmark"></i> Save';
-        }
-    }
-
-    async shareRecipe(recipeId) {
-        const recipe = this.state.currentRecipe;
-        if (!recipe) return;
-        
-        const shareData = {
-            title: recipe.strMeal,
-            text: `Check out this recipe: ${recipe.strMeal}`,
-            url: window.location.href
-        };
-        
-        if (navigator.share) {
-            try {
-                await navigator.share(shareData);
-                UI.showToast('Recipe shared!', 'success');
-            } catch (error) {
-                this.fallbackShare(recipe);
-            }
-        } else {
-            this.fallbackShare(recipe);
-        }
-    }
-
-    fallbackShare(recipe) {
-        const url = window.location.href;
-        const qrURL = APIService.getQRCodeURL(url, 200);
-        
-        const modal = document.createElement('div');
-        modal.className = 'share-modal';
-        modal.innerHTML = `
-            <div class="share-content">
-                <h3>Share Recipe</h3>
-                <img src="${qrURL}" alt="QR Code">
-                <div class="share-buttons">
-                    <button onclick="window.open('https://wa.me/?text=${encodeURIComponent(url)}')">
-                        WhatsApp
+    static createRecipeCard(recipe) {
+        const isSaved = state.isRecipeSaved(recipe.idMeal);
+        return `
+            <div class="recipe-card" data-id="${recipe.idMeal}">
+                <div class="recipe-image">
+                    <img src="${recipe.strMealThumb}" alt="${recipe.strMeal}" loading="lazy">
+                    <button class="save-btn ${isSaved ? 'saved' : ''}">
+                        <i class="fa${isSaved ? 's' : 'r'} fa-heart"></i>
                     </button>
-                    <button onclick="navigator.clipboard.writeText('${url}').then(() => UI.showToast('Link copied!', 'success'))">
-                        Copy Link
-                    </button>
+                    ${recipe.strArea ? `<span class="recipe-badge">${recipe.strArea}</span>` : ''}
                 </div>
-                <button onclick="this.closest('.share-modal').remove()">Close</button>
+                <div class="recipe-info">
+                    <h3 class="recipe-title">${recipe.strMeal}</h3>
+                    <div class="recipe-meta">
+                        ${recipe.strCategory ? `<span><i class="fas fa-tag"></i> ${recipe.strCategory}</span>` : ''}
+                    </div>
+                </div>
             </div>
         `;
-        document.body.appendChild(modal);
     }
 
-    addIngredientsToList(recipeId) {
-        const recipe = this.state.currentRecipe;
-        if (!recipe) return;
-        
-        const ingredients = RecipeDetailRenderer.extractIngredients(recipe, this.state.servingsMultiplier);
-        const items = ingredients.map(ing => ({
-            name: ing,
-            category: 'General',
-            recipeId: recipe.idMeal,
-            recipeName: recipe.strMeal
-        }));
-        
-        this.state.addToShoppingList(items);
-        UI.showToast(`Added ${ingredients.length} ingredients to shopping list`, 'success');
-    }
-
-    async downloadRecipeCard(recipeId) {
-        const recipe = this.state.currentRecipe;
-        if (!recipe) return;
-        
-        UI.showToast('Generating recipe card...', 'info');
-        
-        // Create canvas - larger to fit all content
-        const canvas = document.createElement('canvas');
-        canvas.width = 1080;
-        canvas.height = 2400;
-        const ctx = canvas.getContext('2d');
-        
-        // Background gradient
-        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        gradient.addColorStop(0, '#FDFCFB');
-        gradient.addColorStop(1, '#F8F9FA');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Load and draw image
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = recipe.strMealThumb;
-        
-        img.onload = () => {
-            // Recipe image at top
-            ctx.drawImage(img, 0, 0, canvas.width, 500);
-            
-            // Semi-transparent overlay for readability
-            ctx.fillStyle = 'rgba(253, 252, 251, 0.95)';
-            ctx.fillRect(0, 500, canvas.width, canvas.height - 500);
-            
-            let yPos = 560;
-            
-            // Title
-            ctx.fillStyle = '#212529';
-            ctx.font = 'bold 56px Playfair Display, serif';
-            ctx.textAlign = 'center';
-            const titleLines = this.wrapText(ctx, recipe.strMeal, canvas.width - 160);
-            titleLines.forEach((line, i) => {
-                ctx.fillText(line, canvas.width / 2, yPos + (i * 65));
-            });
-            yPos += titleLines.length * 65 + 40;
-            
-            // Category and Area
-            ctx.font = '28px Manrope, sans-serif';
-            ctx.fillStyle = '#58CC9D';
-            ctx.fillText(`${recipe.strCategory || 'Main Dish'} • ${recipe.strArea || 'International'}`, canvas.width / 2, yPos);
-            yPos += 60;
-            
-            // Ingredients Section
-            ctx.textAlign = 'left';
-            ctx.fillStyle = '#212529';
-            ctx.font = 'bold 36px Manrope, sans-serif';
-            ctx.fillText('Ingredients', 80, yPos);
-            yPos += 50;
-            
-            const ingredients = RecipeDetailRenderer.extractIngredients(recipe, 1);
-            ctx.font = '24px Manrope, sans-serif';
-            ingredients.slice(0, 10).forEach((ing) => {
-                const lines = this.wrapText(ctx, `• ${ing}`, canvas.width - 160);
-                lines.forEach(line => {
-                    ctx.fillText(line, 100, yPos);
-                    yPos += 35;
-                });
-            });
-            yPos += 40;
-            
-            // Directions Section
-            ctx.font = 'bold 36px Manrope, sans-serif';
-            ctx.fillText('Directions', 80, yPos);
-            yPos += 50;
-            
-            const directions = RecipeDetailRenderer.formatDirections(recipe.strInstructions);
-            ctx.font = '24px Manrope, sans-serif';
-            directions.slice(0, 5).forEach((dir, i) => {
-                ctx.fillStyle = '#58CC9D';
-                ctx.font = 'bold 28px Manrope, sans-serif';
-                ctx.fillText(`${i + 1}.`, 80, yPos);
-                
-                ctx.fillStyle = '#212529';
-                ctx.font = '24px Manrope, sans-serif';
-                const lines = this.wrapText(ctx, dir, canvas.width - 200);
-                lines.forEach(line => {
-                    ctx.fillText(line, 120, yPos);
-                    yPos += 35;
-                });
-                yPos += 15;
-            });
-            yPos += 30;
-            
-            // Nutrition Facts
-            ctx.fillStyle = '#212529';
-            ctx.font = 'bold 36px Manrope, sans-serif';
-            ctx.fillText('Nutrition Facts (Per Serving)', 80, yPos);
-            yPos += 50;
-            
-            const nutrition = RecipeDetailRenderer.generateNutrition();
-            ctx.font = '24px Manrope, sans-serif';
-            Object.entries(nutrition).forEach(([key, value]) => {
-                ctx.fillStyle = '#58CC9D';
-                ctx.fillText('•', 100, yPos);
-                ctx.fillStyle = '#212529';
-                ctx.fillText(`${key}: ${value}${key === 'Calories' ? '' : 'g'}`, 130, yPos);
-                yPos += 40;
-            });
-            
-            // Footer with branding and QR
-            yPos = canvas.height - 200;
-            ctx.fillStyle = '#58CC9D';
-            ctx.fillRect(0, yPos - 20, canvas.width, 4);
-            
-            ctx.fillStyle = '#6C757D';
-            ctx.font = '24px Manrope, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText("What's Cooking - Find Your Perfect Recipe", canvas.width / 2, yPos + 30);
-            
-            // QR Code
-            const qrImg = new Image();
-            qrImg.crossOrigin = 'anonymous';
-            qrImg.src = APIService.getQRCodeURL(window.location.href, 150);
-            qrImg.onload = () => {
-                ctx.drawImage(qrImg, canvas.width - 230, canvas.height - 230, 150, 150);
-                
-                ctx.font = '18px Manrope, sans-serif';
-                ctx.fillStyle = '#6C757D';
-                ctx.textAlign = 'center';
-                ctx.fillText('Scan for recipe', canvas.width - 155, canvas.height - 60);
-                
-                // Download
-                canvas.toBlob((blob) => {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${recipe.strMeal.replace(/\s+/g, '-')}-recipe-card.png`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    UI.showToast('Recipe card downloaded! 🎉', 'success');
-                });
-            };
-        };
-    }
-
-    wrapText(ctx, text, maxWidth) {
-        const words = text.split(' ');
-        const lines = [];
-        let currentLine = words[0];
-
-        for (let i = 1; i < words.length; i++) {
-            const word = words[i];
-            const width = ctx.measureText(currentLine + ' ' + word).width;
-            if (width < maxWidth) {
-                currentLine += ' ' + word;
-            } else {
-                lines.push(currentLine);
-                currentLine = word;
+    static async showRecipeDetail(recipeId) {
+        try {
+            const result = await APIService.getRecipeDetails(recipeId);
+            if (!result.meals || !result.meals[0]) {
+                this.showError('Recipe not found');
+                return;
             }
-        }
-        lines.push(currentLine);
-        return lines;
-    }
 
-    printRecipe() {
-        window.print();
-    }
-
-    startCookingMode(recipeId) {
-        if (this.state.currentRecipe) {
-            this.cookingMode.start(this.state.currentRecipe);
-            this.closeDrawer();
-        }
-    }
-
-    // Page loaders
-    loadExplorePage() {
-        const container = document.getElementById('explore-results');
-        
-        // Setup filter listeners
-        document.querySelectorAll('.filter-chip').forEach(chip => {
-            chip.addEventListener('click', async () => {
-                chip.classList.toggle('active');
-                await this.applyFilters();
-            });
-        });
-        
-        // Load initial random recipes
-        this.loadExploreRecipes();
-    }
-
-    async loadExploreRecipes() {
-        const container = document.getElementById('explore-results');
-        UI.displayLoadingCards(container);
-        
-        try {
-            const recipes = await APIService.getMultipleRandomRecipes(12);
-            UI.renderRecipeCards(recipes, container);
-        } catch (error) {
-            console.error('Error loading explore recipes:', error);
-            UI.showToast('Failed to load recipes', 'error');
-        }
-    }
-
-    async applyFilters() {
-        const container = document.getElementById('explore-results');
-        UI.displayLoadingCards(container);
-        
-        const cuisineFilters = Array.from(document.querySelectorAll('#cuisine-filters .filter-chip.active'))
-            .map(chip => chip.dataset.filter);
-        const dietFilters = Array.from(document.querySelectorAll('#diet-filters .filter-chip.active'))
-            .map(chip => chip.dataset.filter);
-        
-        try {
-            let recipes = [];
+            const recipe = result.meals[0];
+            state.currentRecipe = recipe;
             
-            // If cuisine filters are selected
-            if (cuisineFilters.length > 0) {
-                for (const cuisine of cuisineFilters) {
-                    const data = await APIService.filterByArea(cuisine);
-                    if (data.meals) {
-                        // Get full details for first 6 meals
-                        const detailedMeals = await Promise.all(
-                            data.meals.slice(0, 6).map(meal => 
-                                APIService.getRecipeDetails(meal.idMeal)
-                            )
-                        );
-                        recipes.push(...detailedMeals.flatMap(d => d.meals || []));
-                    }
+            const ingredients = [];
+            for (let i = 1; i <= 20; i++) {
+                const ingredient = recipe[`strIngredient${i}`];
+                const measure = recipe[`strMeasure${i}`];
+                if (ingredient && ingredient.trim()) {
+                    ingredients.push({ name: ingredient.trim(), measure: measure?.trim() || '' });
                 }
             }
-            
-            // If diet filters are selected (search by diet keywords)
-            if (dietFilters.length > 0) {
-                for (const diet of dietFilters) {
-                    const data = await APIService.searchByName(diet);
-                    if (data.meals) {
-                        recipes.push(...data.meals.slice(0, 6));
-                    }
-                }
-            }
-            
-            // If no filters, show random
-            if (recipes.length === 0) {
-                recipes = await APIService.getMultipleRandomRecipes(12);
-            }
-            
-            // Remove duplicates
-            const uniqueRecipes = recipes.filter((recipe, index, self) =>
-                index === self.findIndex((r) => r.idMeal === recipe.idMeal)
-            );
-            
-            UI.renderRecipeCards(uniqueRecipes, container);
-            UI.showToast(`Found ${uniqueRecipes.length} recipes`, 'success');
-            
-        } catch (error) {
-            console.error('Filter error:', error);
-            UI.showToast('Failed to apply filters', 'error');
-            this.loadExploreRecipes();
-        }
-    }
 
-    loadMyKitchen() {
-        this.loadSavedRecipes();
-        
-        // Setup tabs
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                
-                btn.classList.add('active');
-                document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-                
-                if (btn.dataset.tab === 'saved') this.loadSavedRecipes();
-                if (btn.dataset.tab === 'history') this.loadCookingHistory();
-                if (btn.dataset.tab === 'meal-plan') this.loadMealPlan();
-            });
-        });
-    }
+            const isSaved = state.isRecipeSaved(recipe.idMeal);
+            
+            document.getElementById('recipeDetail').innerHTML = `
+                <div class="recipe-detail-content">
+                    <div class="recipe-detail-header">
+                        <img src="${recipe.strMealThumb}" alt="${recipe.strMeal}" class="detail-image">
+                        <div class="detail-header-content">
+                            <h1 class="detail-title">${recipe.strMeal}</h1>
+                            <div class="detail-meta">
+                                ${recipe.strCategory ? `<span class="meta-tag"><i class="fas fa-tag"></i> ${recipe.strCategory}</span>` : ''}
+                                ${recipe.strArea ? `<span class="meta-tag"><i class="fas fa-globe"></i> ${recipe.strArea}</span>` : ''}
+                            </div>
+                            <div class="recipe-actions">
+                                <button class="action-btn primary ${isSaved ? 'saved' : ''}" id="detailSaveBtn">
+                                    <i class="fa${isSaved ? 's' : 'r'} fa-heart"></i>
+                                    ${isSaved ? 'Saved' : 'Save Recipe'}
+                                </button>
+                                <button class="action-btn secondary" id="addToMealPlanBtn">
+                                    <i class="fas fa-calendar-plus"></i>
+                                    Add to Meal Plan
+                                </button>
+                                <button class="action-btn secondary" id="shareRecipeBtn">
+                                    <i class="fas fa-share-alt"></i>
+                                    Share
+                                </button>
+                                <button class="action-btn secondary" id="printRecipeBtn">
+                                    <i class="fas fa-print"></i>
+                                    Print
+                                </button>
+                            </div>
+                        </div>
+                    </div>
 
-    loadSavedRecipes() {
-        const container = document.getElementById('saved-recipes-container');
-        if (this.state.savedRecipes.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">📚</div>
-                    <h3>No saved recipes yet</h3>
-                    <p>Start saving your favorite recipes!</p>
-                </div>
-            `;
-        } else {
-            UI.renderRecipeCards(this.state.savedRecipes, container);
-        }
-    }
+                    <div class="recipe-detail-body">
+                        <div class="detail-section">
+                            <div class="section-header-with-action">
+                                <h2><i class="fas fa-list"></i> Ingredients</h2>
+                                <div class="serving-adjuster">
+                                    <label>Servings:</label>
+                                    <button class="serving-btn" id="decreaseServing">-</button>
+                                    <span id="servingDisplay">1</span>
+                                    <button class="serving-btn" id="increaseServing">+</button>
+                                </div>
+                            </div>
+                            <ul class="ingredients-list" id="ingredientsList">
+                                ${ingredients.map((ing, idx) => `
+                                    <li class="ingredient-item">
+                                        <input type="checkbox" id="ing-${idx}">
+                                        <label for="ing-${idx}">
+                                            <span class="ingredient-measure" data-original="${ing.measure}">${ing.measure}</span>
+                                            <span class="ingredient-name">${ing.name}</span>
+                                        </label>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                            <button class="btn-primary full-width" id="addIngredientsToCartBtn">
+                                <i class="fas fa-shopping-cart"></i>
+                                Add All to Shopping List
+                            </button>
+                        </div>
 
-    loadCookingHistory() {
-        const container = document.getElementById('history-container');
-        if (this.state.cookingHistory.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">📋</div>
-                    <h3>No cooking history</h3>
-                    <p>Recipes you cook will appear here</p>
-                </div>
-            `;
-        } else {
-            UI.renderRecipeCards(this.state.cookingHistory, container);
-        }
-    }
+                        <div class="detail-section">
+                            <div class="section-header-with-action">
+                                <h2><i class="fas fa-fire"></i> Instructions</h2>
+                                <button class="btn-secondary" id="cookingModeBtn">
+                                    <i class="fas fa-play"></i>
+                                    Cooking Mode
+                                </button>
+                            </div>
+                            <div class="instructions-content">
+                                ${this.formatInstructions(recipe.strInstructions)}
+                            </div>
+                        </div>
 
-    loadMealPlan() {
-        // Generate 7-day calendar
-        const calendar = document.getElementById('meal-calendar');
-        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const today = new Date();
-        
-        calendar.innerHTML = days.map((day, i) => {
-            const date = new Date(today);
-            date.setDate(today.getDate() + i);
-            return `
-                <div class="calendar-day" data-date="${date.toISOString()}">
-                    <div class="day-number">${day} ${date.getDate()}</div>
-                    <div class="day-meals">
-                        ${this.state.mealPlan[date.toDateString()] || 'No meals planned'}
+                        ${recipe.strYoutube ? `
+                            <div class="detail-section">
+                                <h2><i class="fab fa-youtube"></i> Video Tutorial</h2>
+                                <div class="video-container">
+                                    <iframe 
+                                        src="https://www.youtube.com/embed/${this.getYouTubeId(recipe.strYoutube)}"
+                                        frameborder="0"
+                                        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+                                        allowfullscreen
+                                    ></iframe>
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <div class="detail-section">
+                            <h2><i class="fas fa-chart-pie"></i> Nutrition Information</h2>
+                            <div id="nutritionInfo" class="nutrition-grid">
+                                <div class="loading-spinner">Loading nutrition data...</div>
+                            </div>
+                        </div>
+
+                        <div class="detail-section">
+                            <h2><i class="fas fa-lightbulb"></i> Cooking Tips</h2>
+                            <div class="tips-grid">
+                                <div class="tip-card">
+                                    <i class="fas fa-clock"></i>
+                                    <p>Prep ingredients before starting to cook for better efficiency</p>
+                                </div>
+                                <div class="tip-card">
+                                    <i class="fas fa-thermometer-half"></i>
+                                    <p>Let meat rest after cooking for juicier results</p>
+                                </div>
+                                <div class="tip-card">
+                                    <i class="fas fa-leaf"></i>
+                                    <p>Fresh herbs add the best flavor when added at the end</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
-        }).join('');
+
+            // Set up event listeners for detail page
+            this.setupRecipeDetailListeners(recipe, ingredients);
+            
+            // Show drawer
+            document.getElementById('recipeDrawer').classList.add('active');
+            
+            // Load nutrition (async)
+            this.loadNutritionInfo(recipe);
+
+        } catch (error) {
+            this.showError('Failed to load recipe details');
+            console.error(error);
+        }
     }
 
-    loadShoppingList() {
-        const container = document.getElementById('shopping-list-container');
+    static setupRecipeDetailListeners(recipe, ingredients) {
+        // Save button
+        document.getElementById('detailSaveBtn')?.addEventListener('click', function() {
+            const saved = state.saveRecipe(recipe);
+            if (saved) {
+                this.classList.add('saved');
+                this.innerHTML = '<i class="fas fa-heart"></i> Saved';
+                UI.updateBadges();
+            }
+        });
+
+        // Serving adjusters
+        let servingMultiplier = 1;
         
-        if (this.state.shoppingList.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">🛒</div>
-                    <h3>Your shopping list is empty</h3>
-                    <p>Add ingredients from recipes to get started</p>
-                </div>
-            `;
+        document.getElementById('decreaseServing')?.addEventListener('click', () => {
+            if (servingMultiplier > 0.5) {
+                servingMultiplier -= 0.5;
+                this.updateServings(servingMultiplier);
+            }
+        });
+
+        document.getElementById('increaseServing')?.addEventListener('click', () => {
+            if (servingMultiplier < 10) {
+                servingMultiplier += 0.5;
+                this.updateServings(servingMultiplier);
+            }
+        });
+
+        // Add to shopping list
+        document.getElementById('addIngredientsToCartBtn')?.addEventListener('click', () => {
+            state.addToShoppingList(ingredients);
+            UI.showToast('Ingredients added to shopping list', 'success');
+        });
+
+        // Share recipe
+        document.getElementById('shareRecipeBtn')?.addEventListener('click', () => {
+            this.shareRecipe(recipe);
+        });
+
+        // Print recipe
+        document.getElementById('printRecipeBtn')?.addEventListener('click', () => {
+            window.print();
+        });
+
+        // Cooking mode
+        document.getElementById('cookingModeBtn')?.addEventListener('click', () => {
+            this.enterCookingMode(recipe);
+        });
+
+        // Add to meal plan
+        document.getElementById('addToMealPlanBtn')?.addEventListener('click', () => {
+            this.showMealPlanSelector(recipe);
+        });
+    }
+
+    static updateServings(multiplier) {
+        document.getElementById('servingDisplay').textContent = multiplier;
+        
+        document.querySelectorAll('.ingredient-measure').forEach(el => {
+            const original = el.dataset.original;
+            if (original) {
+                // Simple multiplication - could be enhanced with fraction parsing
+                const match = original.match(/^([\d./]+)/);
+                if (match) {
+                    const num = eval(match[1]) * multiplier;
+                    el.textContent = original.replace(match[1], num.toString());
+                }
+            }
+        });
+    }
+
+    static formatInstructions(instructions) {
+        if (!instructions) return '<p>No instructions available</p>';
+        
+        // Split by newlines and number points
+        const steps = instructions.split(/\r?\n/).filter(s => s.trim());
+        
+        return `<ol class="instructions-list">
+            ${steps.map((step, idx) => `
+                <li class="instruction-step">
+                    <div class="step-number">${idx + 1}</div>
+                    <div class="step-content">${step.replace(/^\d+\.\s*/, '')}</div>
+                </li>
+            `).join('')}
+        </ol>`;
+    }
+
+    static getYouTubeId(url) {
+        const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+        return match ? match[1] : '';
+    }
+
+    static async loadNutritionInfo(recipe) {
+        const container = document.getElementById('nutritionInfo');
+        if (!container) return;
+
+        // Placeholder nutrition data (Spoonacular API would provide real data)
+        const nutrition = {
+            calories: '~450 kcal',
+            protein: '~25g',
+            carbs: '~45g',
+            fat: '~15g'
+        };
+
+        container.innerHTML = `
+            <div class="nutrition-item">
+                <div class="nutrition-label">Calories</div>
+                <div class="nutrition-value">${nutrition.calories}</div>
+            </div>
+            <div class="nutrition-item">
+                <div class="nutrition-label">Protein</div>
+                <div class="nutrition-value">${nutrition.protein}</div>
+            </div>
+            <div class="nutrition-item">
+                <div class="nutrition-label">Carbs</div>
+                <div class="nutrition-value">${nutrition.carbs}</div>
+            </div>
+            <div class="nutrition-item">
+                <div class="nutrition-label">Fat</div>
+                <div class="nutrition-value">${nutrition.fat}</div>
+            </div>
+        `;
+    }
+
+    static shareRecipe(recipe) {
+        const text = `Check out this recipe: ${recipe.strMeal}`;
+        const url = window.location.href;
+
+        if (navigator.share) {
+            navigator.share({
+                title: recipe.strMeal,
+                text: text,
+                url: url
+            }).catch(err => console.log('Share cancelled'));
+        } else {
+            // WhatsApp fallback
+            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}`;
+            window.open(whatsappUrl, '_blank');
+        }
+    }
+
+    static enterCookingMode(recipe) {
+        UI.showToast('Cooking mode coming soon! 👨‍🍳', 'info');
+        // Future: full-screen step-by-step mode with timers
+    }
+
+    static showMealPlanSelector(recipe) {
+        // Future: show calendar popup to select date and meal type
+        UI.showToast('Meal planning coming soon! 📅', 'info');
+    }
+
+    // Voice Search
+    static startVoiceSearch() {
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+            UI.showToast('Voice search not supported in this browser', 'error');
             return;
         }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
         
-        // Group by category
-        const grouped = this.state.shoppingList.reduce((acc, item) => {
-            if (!acc[item.category]) acc[item.category] = [];
-            acc[item.category].push(item);
-            return acc;
-        }, {});
+        recognition.lang = 'en-US';
+        recognition.continuous = false;
+        recognition.interimResults = false;
+
+        recognition.onstart = () => {
+            document.getElementById('voiceSearchBtn').classList.add('listening');
+            UI.showToast('Listening...', 'info');
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            document.getElementById('searchInput').value = transcript;
+            this.handleSearch(transcript);
+        };
+
+        recognition.onerror = (event) => {
+            console.error('Speech recognition error', event);
+            UI.showToast('Voice search failed', 'error');
+        };
+
+        recognition.onend = () => {
+            document.getElementById('voiceSearchBtn').classList.remove('listening');
+        };
+
+        recognition.start();
+    }
+
+    // Image Upload
+    static handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            document.getElementById('previewImg').src = e.target.result;
+            document.getElementById('imagePreview').classList.remove('hidden');
+            document.getElementById('imageUploadArea').style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+
+        // Analyze image button
+        document.getElementById('analyzeImageBtn').onclick = () => {
+            UI.showToast('Image search coming soon! 📸', 'info');
+            // Future: use image recognition API to identify food and search recipes
+        };
+    }
+
+    // Shopping List
+    static openShoppingCart() {
+        this.renderShoppingList();
+        this.openModal('shoppingCartModal');
+    }
+
+    static renderShoppingList() {
+        const container = document.getElementById('shoppingList');
+        const emptyState = document.getElementById('emptyCartState');
         
-        container.innerHTML = Object.entries(grouped).map(([category, items]) => `
-            <div class="shopping-category">
-                <div class="category-header">
-                    <i class="fas fa-tag"></i>
-                    ${category}
-                </div>
-                <ul class="shopping-items">
-                    ${items.map(item => `
-                        <li class="shopping-item ${item.checked ? 'checked' : ''}" 
-                            onclick="app.state.toggleShoppingItem('${item.name}')">
-                            <span class="ingredient-checkbox"></span>
-                            <span class="item-text">${item.name}</span>
-                        </li>
-                    `).join('')}
-                </ul>
+        if (state.shoppingList.length === 0) {
+            container.innerHTML = '';
+            emptyState.style.display = 'flex';
+            return;
+        }
+
+        emptyState.style.display = 'none';
+        container.innerHTML = state.shoppingList.map(item => `
+            <div class="shopping-item ${item.checked ? 'checked' : ''}">
+                <input 
+                    type="checkbox" 
+                    ${item.checked ? 'checked' : ''}
+                    onchange="UI.toggleShoppingItem('${item.name}')"
+                >
+                <span class="item-name">${item.measure ? item.measure + ' ' : ''}${item.name}</span>
+                <button class="delete-item" onclick="UI.removeShoppingItem('${item.name}')">
+                    <i class="fas fa-trash"></i>
+                </button>
             </div>
         `).join('');
+    }
+
+    static toggleShoppingItem(itemName) {
+        state.toggleShoppingItem(itemName);
+        this.renderShoppingList();
+    }
+
+    static removeShoppingItem(itemName) {
+        state.shoppingList = state.shoppingList.filter(i => i.name !== itemName);
+        state.saveToStorage('SHOPPING_LIST', state.shoppingList);
+        this.renderShoppingList();
+        this.updateCartBadge(state.shoppingList.filter(i => !i.checked).length);
+    }
+
+    static shareShoppingList() {
+        const items = state.shoppingList.map(i => `${i.checked ? '✓' : '○'} ${i.measure || ''} ${i.name}`).join('\n');
+        const text = `Shopping List:\n\n${items}`;
         
-        // Setup actions
-        document.getElementById('clear-list-btn').onclick = () => {
-            if (confirm('Clear all items from shopping list?')) {
-                this.state.clearShoppingList();
-                this.loadShoppingList();
+        if (navigator.share) {
+            navigator.share({ text }).catch(err => console.log('Share cancelled'));
+        } else {
+            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+            window.open(whatsappUrl, '_blank');
+        }
+    }
+
+    // Saved Recipes
+    static renderSavedRecipes() {
+        const container = document.getElementById('savedRecipes');
+        const emptyState = document.getElementById('emptySavedState');
+        
+        if (state.savedRecipes.length === 0) {
+            container.innerHTML = '';
+            emptyState.classList.remove('hidden');
+            return;
+        }
+
+        emptyState.classList.add('hidden');
+        this.renderRecipeGrid('savedRecipes', state.savedRecipes);
+    }
+
+    static filterSavedRecipes(query) {
+        const filtered = state.savedRecipes.filter(recipe => 
+            recipe.strMeal.toLowerCase().includes(query.toLowerCase()) ||
+            (recipe.strCategory && recipe.strCategory.toLowerCase().includes(query.toLowerCase())) ||
+            (recipe.strArea && recipe.strArea.toLowerCase().includes(query.toLowerCase()))
+        );
+        this.renderRecipeGrid('savedRecipes', filtered);
+    }
+
+    // Meal Planning
+    static renderMealPlan() {
+        const grid = document.getElementById('mealPlanGrid');
+        const weekStart = state.currentWeekStart;
+        
+        // Update week display
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        document.getElementById('currentWeekDisplay').textContent = 
+            `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const mealTypes = ['Breakfast', 'Lunch', 'Dinner'];
+
+        grid.innerHTML = `
+            <div class="meal-plan-header">
+                <div class="meal-type-label"></div>
+                ${days.map(day => `<div class="day-label">${day}</div>`).join('')}
+            </div>
+            ${mealTypes.map(mealType => `
+                <div class="meal-row">
+                    <div class="meal-type-label">${mealType}</div>
+                    ${days.map((_, idx) => {
+                        const date = new Date(weekStart);
+                        date.setDate(date.getDate() + idx);
+                        const key = date.toISOString().split('T')[0];
+                        const meal = state.mealPlan[key]?.[mealType.toLowerCase()];
+                        
+                        return `
+                            <div class="meal-slot ${meal ? 'filled' : ''}" data-date="${key}" data-meal="${mealType.toLowerCase()}">
+                                ${meal ? `
+                                    <div class="meal-content">
+                                        <img src="${meal.strMealThumb}" alt="${meal.strMeal}">
+                                        <div class="meal-name">${meal.strMeal}</div>
+                                        <button class="remove-meal" onclick="UI.removeMealFromPlan('${key}', '${mealType.toLowerCase()}')">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </div>
+                                ` : `
+                                    <div class="empty-slot">
+                                        <i class="fas fa-plus"></i>
+                                        <span>Add meal</span>
+                                    </div>
+                                `}
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `).join('')}
+        `;
+
+        // Add click handlers for empty slots
+        grid.querySelectorAll('.meal-slot.empty-slot').forEach(slot => {
+            slot.addEventListener('click', () => {
+                UI.showToast('Meal planning drag & drop coming soon! 🎯', 'info');
+            });
+        });
+    }
+
+    static removeMealFromPlan(dateKey, mealType) {
+        const date = new Date(dateKey);
+        state.removeFromMealPlan(date, mealType);
+        this.renderMealPlan();
+    }
+
+    static changeMealPlanWeek(direction) {
+        const newDate = new Date(state.currentWeekStart);
+        newDate.setDate(newDate.getDate() + (direction * 7));
+        state.currentWeekStart = state.getWeekStart(newDate);
+        this.renderMealPlan();
+    }
+
+    static clearMealPlanWeek() {
+        const weekStart = state.currentWeekStart;
+        for (let i = 0; i < 7; i++) {
+            const date = new Date(weekStart);
+            date.setDate(date.getDate() + i);
+            const key = date.toISOString().split('T')[0];
+            delete state.mealPlan[key];
+        }
+        state.saveToStorage('MEAL_PLAN', state.mealPlan);
+        this.renderMealPlan();
+    }
+
+    static generateShoppingListFromMealPlan() {
+        UI.showToast('Shopping list generation coming soon! 🛒', 'info');
+    }
+
+    // Discover Page
+    static async renderDiscoverPage() {
+        const recipes = await APIService.getMultipleRandomRecipes(12);
+        this.renderRecipeGrid('discoverResults', recipes);
+    }
+
+    static async applyDiscoverFilters() {
+        const cuisine = document.getElementById('cuisineFilter').value;
+        const category = document.getElementById('categoryFilter').value;
+        const diet = document.getElementById('dietFilter').value;
+
+        try {
+            UI.showLoading('discoverResults');
+            let results;
+
+            if (cuisine) {
+                results = await APIService.filterByArea(cuisine);
+            } else if (category) {
+                results = await APIService.filterByCategory(category);
+            } else {
+                results = { meals: await APIService.getMultipleRandomRecipes(12) };
             }
-        };
-        
-        document.getElementById('export-list-btn').onclick = () => {
-            this.exportShoppingList();
-        };
-    }
 
-    exportShoppingList() {
-        const text = this.state.shoppingList
-            .map(item => `${item.checked ? '☑' : '☐'} ${item.name}`)
-            .join('\n');
-        
-        const blob = new Blob([text], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'shopping-list.txt';
-        a.click();
-        URL.revokeObjectURL(url);
-        
-        UI.showToast('Shopping list exported!', 'success');
-    }
-
-    loadProfile() {
-        // Setup theme switcher
-        document.querySelectorAll('.theme-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                this.setTheme(btn.dataset.theme);
-            });
-        });
-        
-        // Save profile button
-        document.getElementById('save-profile-btn').onclick = () => {
-            this.saveProfile();
-        };
-        
-        // Load current preferences
-        this.loadProfileSettings();
-    }
-
-    loadProfileSettings() {
-        const prefs = this.state.userPreferences;
-        
-        // Load dietary restrictions
-        prefs.diet.forEach(diet => {
-            const checkbox = document.querySelector(`input[name="diet"][value="${diet}"]`);
-            if (checkbox) checkbox.checked = true;
-        });
-        
-        // Load allergens
-        prefs.allergens.forEach(allergen => {
-            const checkbox = document.querySelector(`input[name="allergen"][value="${allergen}"]`);
-            if (checkbox) checkbox.checked = true;
-        });
-        
-        // Load measurement system
-        const radio = document.querySelector(`input[name="measurement"][value="${prefs.measurement}"]`);
-        if (radio) radio.checked = true;
-        
-        // Load equipment
-        prefs.equipment.forEach(equip => {
-            const checkbox = document.querySelector(`input[name="equipment"][value="${equip}"]`);
-            if (checkbox) checkbox.checked = true;
-        });
-    }
-
-    saveProfile() {
-        const diet = Array.from(document.querySelectorAll('input[name="diet"]:checked'))
-            .map(cb => cb.value);
-        const allergens = Array.from(document.querySelectorAll('input[name="allergen"]:checked'))
-            .map(cb => cb.value);
-        const measurement = document.querySelector('input[name="measurement"]:checked').value;
-        const equipment = Array.from(document.querySelectorAll('input[name="equipment"]:checked'))
-            .map(cb => cb.value);
-        
-        this.state.updatePreferences({
-            diet,
-            allergens,
-            measurement,
-            equipment
-        });
-        
-        UI.showToast('Profile saved!', 'success');
-    }
-
-    applyTheme() {
-        const theme = this.state.userPreferences.theme || 'auto';
-        this.setTheme(theme);
-    }
-
-    setTheme(theme) {
-        if (theme === 'auto') {
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            theme = prefersDark ? 'dark' : 'light';
+            if (results.meals) {
+                this.renderRecipeGrid('discoverResults', results.meals);
+            }
+        } catch (error) {
+            this.showError('Failed to load recipes');
         }
-        
-        document.documentElement.setAttribute('data-theme', theme);
-        this.state.updatePreferences({ theme });
     }
 
-    initPWA() {
+    // Modals
+    static openModal(modalId) {
+        document.getElementById(modalId).classList.add('active');
+    }
+
+    static closeModal(modalId) {
+        document.getElementById(modalId).classList.remove('active');
+    }
+
+    // Filters
+    static applyQuickFilter(filter) {
+        document.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.classList.remove('active');
+        });
+        event.target.classList.add('active');
+
+        if (filter === 'all') {
+            this.renderFeaturedRecipes();
+        } else {
+            this.loadRegionalRecipes(filter);
+        }
+    }
+
+    static applyAdvancedFilters() {
+        // Collect filter values
+        const dietary = Array.from(document.querySelectorAll('#advancedFiltersModal input[type="checkbox"]:checked'))
+            .map(cb => cb.value);
+        const time = document.querySelector('#advancedFiltersModal input[name="time"]:checked')?.value;
+        const difficulty = document.querySelector('#advancedFiltersModal input[name="difficulty"]:checked')?.value;
+        const spiceLevel = document.getElementById('spiceLevel').value;
+
+        // Save to preferences
+        state.updatePreferences({ dietary, difficulty, spiceLevel });
+        
+        UI.showToast('Filters applied!', 'success');
+        this.closeModal('advancedFiltersModal');
+        
+        // Future: actually filter recipes based on these criteria
+    }
+
+    static resetFilters() {
+        document.querySelectorAll('#advancedFiltersModal input[type="checkbox"]').forEach(cb => cb.checked = false);
+        document.querySelectorAll('#advancedFiltersModal input[type="radio"]').forEach(rb => rb.checked = false);
+        document.getElementById('spiceLevel').value = 0;
+    }
+
+    // Utility UI methods
+    static updateBadges() {
+        document.getElementById('savedBadge').textContent = state.savedRecipes.length;
+        document.getElementById('cartBadge').textContent = state.shoppingList.filter(i => !i.checked).length;
+    }
+
+    static updateCartBadge(count) {
+        document.getElementById('cartBadge').textContent = count;
+    }
+
+    static showLoading(containerId) {
+        const container = document.getElementById(containerId);
+        if (container) {
+            container.innerHTML = `
+                <div class="loading-container">
+                    <div class="loading-spinner"></div>
+                    <p>Loading recipes...</p>
+                </div>
+            `;
+        }
+    }
+
+    static renderEmptyState(containerId, title, message) {
+        const container = document.getElementById(containerId);
+        if (container) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-search"></i>
+                    <h3>${title}</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+    }
+
+    static showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.innerHTML = `
+            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+            <span>${message}</span>
+        `;
+        
+        document.getElementById('toastContainer').appendChild(toast);
+        
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    static showError(message) {
+        this.showToast(message, 'error');
+    }
+
+    static showAchievement(achievement) {
+        const toast = document.createElement('div');
+        toast.className = 'toast toast-achievement';
+        toast.innerHTML = `
+            <div class="achievement-content">
+                <div class="achievement-icon">${achievement.icon}</div>
+                <div>
+                    <div class="achievement-title">Achievement Unlocked!</div>
+                    <div class="achievement-name">${achievement.title}</div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('toastContainer').appendChild(toast);
+        
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 5000);
+    }
+
+    // PWA Installation
+    static initPWA() {
+        let deferredPrompt;
+        const installPrompt = document.getElementById('installPrompt');
+        const installBtn = document.getElementById('installBtn');
+        const dismissBtn = document.getElementById('dismissInstallBtn');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installPrompt.classList.remove('hidden');
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                console.log(`User response: ${outcome}`);
+                deferredPrompt = null;
+                installPrompt.classList.add('hidden');
+            }
+        });
+
+        dismissBtn.addEventListener('click', () => {
+            installPrompt.classList.add('hidden');
+        });
+
+        // Register service worker
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('✅ Service Worker registered'))
-                    .catch(err => console.log('❌ Service Worker registration failed:', err));
-            });
+            navigator.serviceWorker.register('/sw.js')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.log('Service Worker registration failed:', err));
         }
     }
+
+    // Intersection Observer for lazy loading
+    static setupIntersectionObserver() {
+        const imageObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    img.src = img.dataset.src;
+                    img.classList.add('loaded');
+                    imageObserver.unobserve(img);
+                }
+            });
+        });
+
+        // Observe will be set up when images are created
+        state.on('recipes:rendered', () => {
+            document.querySelectorAll('img[data-src]').forEach(img => {
+                imageObserver.observe(img);
+            });
+        });
+    }
+}
+
+// ===== UTILITY FUNCTIONS =====
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
 }
 
 // ===== INITIALIZE APP =====
-let app;
-let cookingMode;
+let state;
 
 document.addEventListener('DOMContentLoaded', () => {
-    app = new WhatsCookingApp();
-    cookingMode = app.cookingMode;
+    state = new AppState();
+    UI.init();
     
-    // Make app globally accessible for onclick handlers
-    window.app = app;
-    window.cookingMode = cookingMode;
+    console.log('Recipe Finder App initialized! 🍳');
 });
 
-// Export for module usage
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { WhatsCookingApp, APIService, UI };
-}
+// Handle online/offline
+window.addEventListener('online', () => {
+    UI.showToast('Back online!', 'success');
+});
 
-/**
- * THE DECORATOR: 
- * Takes raw API data and enhances it with Nigerian market context 
- * before it hits your existing render functions.
- */
-function enhanceAfricanNuance(recipe) {
-    const nigerianKeywords = ['Jollof', 'Egusi', 'Suya', 'Pounded Yam', 'Okra'];
-    
-    // Check if it's a Nigerian dish
-    const isNigerian = nigerianKeywords.some(key => 
-        recipe.title.toLowerCase().includes(key.toLowerCase())
-    );
-
-    if (isNigerian) {
-        // Inject a custom property your UI can use to show a "Naija Flavor" badge
-        recipe.culturalNote = "Authentic West African Recipe";
-        
-        // UX Enhancement: Suggest a "Swallow" pairing automatically
-        if (recipe.title.includes('Soup') || recipe.title.includes('Stew')) {
-            recipe.pairingSuggestion = "Best served with Pounded Yam or Eba.";
-        }
-    }
-    return recipe;
-}
-
-// HOW TO USE IN YOUR EXISTING CODE:
-// In your search function, right before you call renderRecipes(data):
-// const enhancedData = data.map(recipe => enhanceAfricanNuance(recipe));
-// renderRecipes(enhancedData);
+window.addEventListener('offline', () => {
+    UI.showToast('You are offline. Some features may be limited.', 'info');
+});

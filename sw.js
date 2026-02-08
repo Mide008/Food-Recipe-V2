@@ -1,5 +1,5 @@
-// Service Worker for What's Cooking PWA
-const CACHE_NAME = 'whats-cooking-v1';
+// Service Worker for Recipe Finder PWA
+const CACHE_NAME = 'recipe-finder-v1.0.0';
 const ASSETS_TO_CACHE = [
     '/',
     '/index.html',
@@ -16,7 +16,9 @@ self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             console.log('[Service Worker] Caching assets');
-            return cache.addAll(ASSETS_TO_CACHE);
+            return cache.addAll(ASSETS_TO_CACHE).catch(err => {
+                console.error('[Service Worker] Cache failed:', err);
+            });
         })
     );
     self.skipWaiting();
@@ -40,68 +42,111 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// Fetch event - serve from cache, fallback to network
+// Fetch event - Network First with Cache Fallback Strategy
 self.addEventListener('fetch', (event) => {
+    const { request } = event;
+    const url = new URL(request.url);
+
+    // Skip cross-origin requests
+    if (url.origin !== location.origin && !url.origin.includes('googleapis') && !url.origin.includes('cloudflare')) {
+        return;
+    }
+
     event.respondWith(
-        caches.match(event.request).then((response) => {
-            // If it's in cache, return it (Fast UI)
-            if (response) {
-                return response;
-            }
-            
-            // If not in cache, fetch from network
-            return fetch(event.request).then((networkResponse) => {
+        fetch(request)
+            .then((response) => {
                 // Don't cache non-successful responses
-                if (!networkResponse || networkResponse.status !== 200 || networkResponse.type === 'error') {
-                    return networkResponse;
+                if (!response || response.status !== 200 || response.type === 'error') {
+                    return response;
                 }
-                
-                // Cache the newly fetched resource
-                const responseToCache = networkResponse.clone();
-                caches.open(CACHE_NAME).then((cache) => {
-                    cache.put(event.request, responseToCache);
+
+                // Clone the response
+                const responseToCache = response.clone();
+
+                // Cache API responses and images
+                if (request.method === 'GET' && (
+                    url.pathname.endsWith('.jpg') ||
+                    url.pathname.endsWith('.png') ||
+                    url.pathname.endsWith('.webp') ||
+                    url.pathname.includes('/api/')
+                )) {
+                    caches.open(CACHE_NAME).then((cache) => {
+                        cache.put(request, responseToCache);
+                    });
+                }
+
+                return response;
+            })
+            .catch(() => {
+                // Network failed, try cache
+                return caches.match(request).then((response) => {
+                    if (response) {
+                        return response;
+                    }
+
+                    // If it's an image request and not in cache, return placeholder
+                    if (request.destination === 'image') {
+                        return new Response(
+                            '<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#F3F4F6"/><text x="50%" y="50%" text-anchor="middle" fill="#9CA3AF" font-family="Arial" font-size="14">Image Offline</text></svg>',
+                            { headers: { 'Content-Type': 'image/svg+xml' } }
+                        );
+                    }
+
+                    // Return offline page for navigation requests
+                    if (request.mode === 'navigate') {
+                        return caches.match('/index.html');
+                    }
                 });
-                
-                return networkResponse;
-            }).catch(() => {
-                /**
-                 * DESIGN ENGINEER ADDITION: 
-                 * If the network fails (offline) and it's an image request, 
-                 * return a placeholder instead of a broken icon.
-                 */
-                if (event.request.destination === 'image') {
-                    // This uses a free, high-quality placeholder API 
-                    // until you add your own local 'fallback.jpg'
-                    return caches.match('https://via.placeholder.com/500x300?text=Image+Offline');
-                }
-            });
-        })
+            })
     );
 });
+
 // Background sync for offline actions
 self.addEventListener('sync', (event) => {
     if (event.tag === 'sync-shopping-list') {
         event.waitUntil(syncShoppingList());
     }
+    if (event.tag === 'sync-saved-recipes') {
+        event.waitUntil(syncSavedRecipes());
+    }
 });
 
 async function syncShoppingList() {
-    // Implement shopping list sync logic here
     console.log('[Service Worker] Syncing shopping list');
+    // Implement shopping list sync logic here
+    // This would sync any offline changes when connection is restored
+}
+
+async function syncSavedRecipes() {
+    console.log('[Service Worker] Syncing saved recipes');
+    // Implement saved recipes sync logic here
 }
 
 // Push notifications
 self.addEventListener('push', (event) => {
     const data = event.data ? event.data.json() : {};
-    const title = data.title || 'What\'s Cooking';
+    const title = data.title || 'Recipe Finder';
     const options = {
-        body: data.body || 'New recipe available!',
-        icon: '/icon.png',
-        badge: '/badge.png',
+        body: data.body || 'Check out new recipes!',
+        icon: '/icon-192.png',
+        badge: '/badge-72.png',
         vibrate: [200, 100, 200],
-        data: data.url
+        data: {
+            url: data.url || '/',
+            dateOfArrival: Date.now()
+        },
+        actions: [
+            {
+                action: 'view',
+                title: 'View Recipe'
+            },
+            {
+                action: 'close',
+                title: 'Close'
+            }
+        ]
     };
-    
+
     event.waitUntil(
         self.registration.showNotification(title, options)
     );
@@ -110,10 +155,51 @@ self.addEventListener('push', (event) => {
 // Notification click
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-    
-    if (event.notification.data) {
+
+    if (event.action === 'view' || !event.action) {
+        const urlToOpen = event.notification.data.url || '/';
+        
         event.waitUntil(
-            clients.openWindow(event.notification.data)
+            clients.matchAll({ type: 'window', includeUncontrolled: true })
+                .then((windowClients) => {
+                    // Check if there's already a window open
+                    for (let client of windowClients) {
+                        if (client.url === urlToOpen && 'focus' in client) {
+                            return client.focus();
+                        }
+                    }
+                    // Open new window if none exists
+                    if (clients.openWindow) {
+                        return clients.openWindow(urlToOpen);
+                    }
+                })
         );
     }
 });
+
+// Message handling from client
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
+    
+    if (event.data && event.data.type === 'CLEAR_CACHE') {
+        event.waitUntil(
+            caches.delete(CACHE_NAME).then(() => {
+                return self.clients.claim();
+            })
+        );
+    }
+});
+
+// Periodic background sync (requires permission)
+self.addEventListener('periodicsync', (event) => {
+    if (event.tag === 'daily-recipe-update') {
+        event.waitUntil(updateDailyRecipes());
+    }
+});
+
+async function updateDailyRecipes() {
+    console.log('[Service Worker] Updating daily recipes');
+    // Fetch and cache new daily recipes
+}
