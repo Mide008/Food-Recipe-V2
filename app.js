@@ -1,5 +1,10 @@
 /* =================================================================
-   RECIPE FINDER APP - FINAL FIX - DROPDOWN BELOW SEARCH BAR
+   RECIPE FINDER APP - FIXED SEARCH RESULTS
+   Issues Fixed: 
+   1. Search results now show ONLY recipes matching the search term
+   2. Featured Recipes section shows rice recipes when user searches for "rice"
+   3. No more showing random recipes when searching
+   4. Dropdown suggestions match search term
    ================================================================= */
 
 const CONFIG = {
@@ -69,6 +74,7 @@ class AppState {
         this.selectedMealPlanRecipe = null;
         this.baseIngredients = [];
         this.baseCookingTime = 0;
+        this.lastSearchQuery = '';
     }
 
     loadFromStorage(key, defaultValue) {
@@ -253,17 +259,42 @@ class APIService {
         const lowerQuery = query.toLowerCase();
         return LOCAL_RECIPES.filter(recipe => {
             return recipe.name?.toLowerCase().includes(lowerQuery) ||
-                   recipe.strMeal?.toLowerCase().includes(lowerQuery);
+                   recipe.strMeal?.toLowerCase().includes(lowerQuery) ||
+                   recipe.ingredients?.some(ing => ing.item.toLowerCase().includes(lowerQuery)) ||
+                   recipe.category?.toLowerCase().includes(lowerQuery) ||
+                   recipe.cuisine?.toLowerCase().includes(lowerQuery) ||
+                   recipe.tags?.some(tag => tag.toLowerCase().includes(lowerQuery));
         });
     }
 
     static async combinedSearch(query) {
         const localResults = this.searchLocalRecipes(query);
         const apiResults = await this.searchByName(query);
+        
+        // Filter API results to ensure they actually match the query
+        const lowerQuery = query.toLowerCase();
+        const filteredApiResults = (apiResults.meals || []).filter(meal => {
+            return meal.strMeal?.toLowerCase().includes(lowerQuery) ||
+                   meal.strCategory?.toLowerCase().includes(lowerQuery) ||
+                   meal.strArea?.toLowerCase().includes(lowerQuery) ||
+                   meal.strTags?.toLowerCase().includes(lowerQuery) ||
+                   this.recipeHasIngredient(meal, lowerQuery);
+        });
+        
         return [
             ...localResults.map(r => this.normalizeLocalRecipe(r)),
-            ...(apiResults.meals || [])
+            ...filteredApiResults
         ];
+    }
+
+    static recipeHasIngredient(recipe, query) {
+        for (let i = 1; i <= 20; i++) {
+            const ingredient = recipe[`strIngredient${i}`];
+            if (ingredient && ingredient.toLowerCase().includes(query)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static normalizeLocalRecipe(recipe) {
@@ -322,6 +353,7 @@ class UI {
                 ...(RECIPE_DATABASE.quick || []),
                 ...(RECIPE_DATABASE.international || [])
             ];
+            console.log(`✅ Loaded ${LOCAL_RECIPES.length} local recipes`);
         }
     }
 
@@ -337,7 +369,7 @@ class UI {
         const cartBtn = document.getElementById('shoppingCartBtn');
         if (cartBtn) cartBtn.addEventListener('click', () => this.openShoppingCart());
 
-        // SEARCH WITH AUTOCOMPLETE - SIMPLE POSITIONING
+        // SEARCH WITH AUTOCOMPLETE
         const searchInput = document.getElementById('searchInput');
         
         if (searchInput) {
@@ -606,6 +638,17 @@ class UI {
         const container = document.getElementById('featuredRecipes');
         if (!container) return;
         
+        // If there was a recent search, show those results instead
+        if (state.lastSearchQuery && state.lastSearchQuery.length >= 2) {
+            this.showToast(`Showing recipes for "${state.lastSearchQuery}"`, 'info');
+            const results = await APIService.combinedSearch(state.lastSearchQuery);
+            if (results.length > 0) {
+                container.innerHTML = results.slice(0, 6).map(recipe => this.createRecipeCard(recipe)).join('');
+                return;
+            }
+        }
+        
+        // Otherwise show random featured recipes
         container.innerHTML = '<div class="loading-container"><div class="loading-spinner"></div></div>';
         
         try {
@@ -647,11 +690,6 @@ class UI {
         `;
     }
 
-    static async handleAutocomplete(query) {
-        const results = await APIService.combinedSearch(query);
-        this.showAutocomplete(results.slice(0, 5));
-    }
-
     static positionAutocomplete() {
         const searchWrapper = document.querySelector('.search-wrapper');
         const dropdown = document.getElementById('autocompleteDropdown');
@@ -660,13 +698,17 @@ class UI {
         
         const rect = searchWrapper.getBoundingClientRect();
         
-        // SIMPLE POSITIONING - directly below search bar
         dropdown.style.position = 'fixed';
         dropdown.style.top = (rect.bottom + window.scrollY) + 'px';
         dropdown.style.left = rect.left + 'px';
         dropdown.style.width = rect.width + 'px';
         dropdown.style.right = 'auto';
         dropdown.style.margin = '0';
+    }
+
+    static async handleAutocomplete(query) {
+        const results = await APIService.combinedSearch(query);
+        this.showAutocomplete(results.slice(0, 5));
     }
 
     static showAutocomplete(results) {
@@ -707,22 +749,35 @@ class UI {
             this.showToast('Please enter a search term', 'info');
             return;
         }
+        
+        // Save the search query
+        state.lastSearchQuery = query.trim();
+        
+        // Navigate to discover page to show all results
         this.navigateTo('discover');
+        
+        // Also update featured recipes on home page with search results
+        this.loadFeaturedRecipes();
+        
         const resultsContainer = document.getElementById('discoverResults');
         if (!resultsContainer) return;
+        
         resultsContainer.innerHTML = '<div class="loading-container"><div class="loading-spinner"></div><p>Searching...</p></div>';
+        
         try {
             const results = await APIService.combinedSearch(query);
+            
             if (results.length === 0) {
                 resultsContainer.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-search"></i>
-                        <h3>No recipes found</h3>
+                        <h3>No recipes found for "${query}"</h3>
                         <p>Try a different search term</p>
                     </div>
                 `;
             } else {
                 resultsContainer.innerHTML = results.map(recipe => this.createRecipeCard(recipe)).join('');
+                this.showToast(`Found ${results.length} recipes for "${query}"`, 'success');
             }
         } catch (error) {
             resultsContainer.innerHTML = `
@@ -1283,6 +1338,17 @@ class UI {
     static async renderDiscoverPage() {
         const resultsContainer = document.getElementById('discoverResults');
         if (!resultsContainer) return;
+        
+        // If there was a recent search, show those results
+        if (state.lastSearchQuery && state.lastSearchQuery.length >= 2) {
+            const results = await APIService.combinedSearch(state.lastSearchQuery);
+            if (results.length > 0) {
+                resultsContainer.innerHTML = results.map(recipe => this.createRecipeCard(recipe)).join('');
+                return;
+            }
+        }
+        
+        // Otherwise show random recipes
         resultsContainer.innerHTML = '<div class="loading-container"><div class="loading-spinner"></div></div>';
         try {
             const recipes = await APIService.getMultipleRandomRecipes(12);
@@ -1307,6 +1373,7 @@ class UI {
             } else if (category) {
                 data = await APIService.filterByCategory(category);
             } else {
+                // If no filters and no search, show random recipes
                 const recipes = await APIService.getMultipleRandomRecipes(12);
                 resultsContainer.innerHTML = recipes.map(recipe => this.createRecipeCard(recipe)).join('');
                 return;
@@ -1473,7 +1540,7 @@ class UI {
     }
 })();
 
-// ===== SIMPLE CSS FIXES - INJECT STYLES =====
+// ===== CSS FIXES =====
 (function injectStyles() {
     const style = document.createElement('style');
     style.textContent = `
@@ -1501,7 +1568,7 @@ class UI {
             margin-right: 8px !important;
         }
         
-        /* DROPDOWN STYLES - GUARANTEED POSITION */
+        /* DROPDOWN STYLES */
         #autocompleteDropdown {
             position: fixed !important;
             background: white !important;
@@ -1551,7 +1618,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.appendChild(dropdown);
     }
     
-    // Force left alignment on all elements
+    // Force left alignment
     const forceLeft = () => {
         document.querySelectorAll('.hero-content, .hero-title, .hero-description, .search-container, .search-wrapper, .filter-section-header, .filter-label').forEach(el => {
             if (el) {
@@ -1571,6 +1638,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     forceLeft();
     UI.init();
+    UI.hideLoadingScreen();
     
     console.log('✅ App initialized successfully!');
 });
