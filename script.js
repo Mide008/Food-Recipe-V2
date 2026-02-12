@@ -1,5 +1,9 @@
 /* =================================================================
-   RECIPE FINDER APP - FINAL FIX - DROPDOWN BELOW SEARCH BAR
+   RECIPE FINDER APP - SEARCH LEFT-ALIGNED WITH FILTERS
+   Updates:
+   1. Search bar now left-aligned with filter chips
+   2. Removed centering and max-width constraints
+   3. Full-width search container matching filter section
    ================================================================= */
 
 const CONFIG = {
@@ -9,12 +13,373 @@ const CONFIG = {
     STORAGE_KEYS: {
         SAVED_RECIPES: 'recipeFinder_saved',
         SHOPPING_LIST: 'recipeFinder_cart',
-        MEAL_PLAN: 'recipeFinder_mealPlan'
+        MEAL_PLAN: 'recipeFinder_mealPlan',
+        CHALLENGES: 'recipeFinder_challenges'
     },
     DEBOUNCE_DELAY: 300
 };
 
 let LOCAL_RECIPES = [];
+
+// ===== CHALLENGES CONFIGURATION =====
+const CHALLENGES = [
+    {
+        id: 'soup-master',
+        title: 'Master a Soup',
+        icon: '🍲',
+        description: 'Cook 3 different soups',
+        target: 3,
+        unit: 'soups',
+        cuisine: ['soup', 'stew'],
+        category: ['Soup', 'Stew'],
+        points: 100,
+        badge: '🥣 Soup Master'
+    },
+    {
+        id: 'spice-explorer',
+        title: 'Spice Explorer',
+        icon: '🌶️',
+        description: 'Try 5 different cuisines',
+        target: 5,
+        unit: 'cuisines',
+        cuisine: ['african', 'asian', 'european', 'american', 'mediterranean'],
+        category: ['All'],
+        points: 150,
+        badge: '🌍 Spice Explorer'
+    },
+    {
+        id: 'pasta-perfect',
+        title: 'Pasta Perfect',
+        icon: '🍝',
+        description: 'Make 4 pasta dishes',
+        target: 4,
+        unit: 'pastas',
+        cuisine: ['italian'],
+        category: ['Pasta'],
+        points: 120,
+        badge: '🍝 Pasta Perfect'
+    },
+    {
+        id: 'breakfast-king',
+        title: 'Breakfast King',
+        icon: '🍳',
+        description: 'Cook 5 breakfast recipes',
+        target: 5,
+        unit: 'breakfasts',
+        cuisine: ['breakfast', 'morning'],
+        category: ['Breakfast'],
+        points: 100,
+        badge: '🍳 Breakfast King'
+    },
+    {
+        id: 'seafood-feast',
+        title: 'Seafood Feast',
+        icon: '🦐',
+        description: 'Prepare 3 seafood dishes',
+        target: 3,
+        unit: 'seafood dishes',
+        cuisine: ['seafood', 'fish'],
+        category: ['Seafood'],
+        points: 130,
+        badge: '🦐 Seafood Master'
+    },
+    {
+        id: 'vegan-voyage',
+        title: 'Vegan Voyage',
+        icon: '🥗',
+        description: 'Try 4 vegan recipes',
+        target: 4,
+        unit: 'vegan dishes',
+        cuisine: ['vegan', 'vegetarian'],
+        category: ['Vegan', 'Vegetarian'],
+        points: 140,
+        badge: '🌱 Vegan Voyager'
+    },
+    {
+        id: 'dessert-lover',
+        title: 'Dessert Lover',
+        icon: '🍰',
+        description: 'Bake 3 desserts',
+        target: 3,
+        unit: 'desserts',
+        cuisine: ['dessert'],
+        category: ['Dessert'],
+        points: 110,
+        badge: '🍰 Dessert Master'
+    },
+    {
+        id: 'quick-meals',
+        title: 'Quick & Easy',
+        icon: '⚡',
+        description: 'Make 6 meals under 30 min',
+        target: 6,
+        unit: 'quick meals',
+        cuisine: ['quick', 'fast'],
+        category: ['All'],
+        points: 160,
+        badge: '⚡ Speed Chef'
+    },
+    {
+        id: 'african-feast',
+        title: 'African Feast',
+        icon: '🌍',
+        description: 'Cook 4 African dishes',
+        target: 4,
+        unit: 'African dishes',
+        cuisine: ['nigerian', 'ghanaian', 'senegalese', 'african'],
+        category: ['All'],
+        points: 150,
+        badge: '🌍 African Chef'
+    },
+    {
+        id: 'grill-master',
+        title: 'Grill Master',
+        icon: '🔥',
+        description: 'Grill 3 different meats',
+        target: 3,
+        unit: 'grilled dishes',
+        cuisine: ['grill', 'bbq', 'roast'],
+        category: ['Beef', 'Chicken', 'Pork', 'Lamb'],
+        points: 125,
+        badge: '🔥 Grill Champion'
+    }
+];
+
+class ChallengeTracker {
+    constructor() {
+        this.loadProgress();
+        this.currentWeekStart = this.getWeekStart(new Date());
+        this.completedRecipes = new Set();
+    }
+
+    loadProgress() {
+        try {
+            const saved = localStorage.getItem(CONFIG.STORAGE_KEYS.CHALLENGES);
+            this.progress = saved ? JSON.parse(saved) : this.initializeProgress();
+            console.log('🏆 Challenges loaded:', this.progress);
+        } catch (error) {
+            console.error('Error loading challenges:', error);
+            this.progress = this.initializeProgress();
+        }
+    }
+
+    initializeProgress() {
+        const progress = {};
+        CHALLENGES.forEach(challenge => {
+            progress[challenge.id] = {
+                current: 0,
+                completed: false,
+                claimed: false,
+                recipes: [],
+                cuisines: [],
+                weekStart: this.currentWeekStart.toISOString()
+            };
+        });
+        return progress;
+    }
+
+    getWeekStart(date) {
+        const d = new Date(date);
+        const day = d.getDay();
+        const diff = d.getDate() - day;
+        return new Date(d.setDate(diff));
+    }
+
+    isNewWeek() {
+        const savedWeekStart = this.progress[CHALLENGES[0].id]?.weekStart;
+        if (!savedWeekStart) return true;
+        
+        const savedDate = new Date(savedWeekStart);
+        const currentWeekStart = this.getWeekStart(new Date());
+        
+        return savedDate.toDateString() !== currentWeekStart.toDateString();
+    }
+
+    resetWeeklyChallenges() {
+        console.log('🔄 Resetting weekly challenges');
+        CHALLENGES.forEach(challenge => {
+            if (this.progress[challenge.id]) {
+                this.progress[challenge.id] = {
+                    current: 0,
+                    completed: false,
+                    claimed: false,
+                    recipes: [],
+                    cuisines: [],
+                    weekStart: this.getWeekStart(new Date()).toISOString()
+                };
+            }
+        });
+        this.completedRecipes.clear();
+        this.saveProgress();
+    }
+
+    trackRecipe(recipe) {
+        if (!recipe) return;
+
+        // Check if we need to reset for new week
+        if (this.isNewWeek()) {
+            this.resetWeeklyChallenges();
+        }
+
+        // Prevent duplicate counting of same recipe
+        if (this.completedRecipes.has(recipe.idMeal)) {
+            console.log('⏭️ Recipe already counted this week:', recipe.strMeal);
+            return;
+        }
+
+        console.log('🏆 Tracking recipe for challenges:', recipe.strMeal);
+        let anyProgress = false;
+        const recipeCuisine = (recipe.strArea || '').toLowerCase();
+        const recipeCategory = (recipe.strCategory || '').toLowerCase();
+        const recipeTags = (recipe.strTags || '').toLowerCase();
+        const recipeName = (recipe.strMeal || '').toLowerCase();
+
+        CHALLENGES.forEach(challenge => {
+            const progress = this.progress[challenge.id];
+            if (!progress || progress.completed || progress.claimed) return;
+
+            let qualifies = false;
+
+            // Check if recipe qualifies for this challenge
+            if (challenge.id === 'soup-master') {
+                qualifies = recipeCategory.includes('soup') || 
+                           recipeName.includes('soup') || 
+                           recipeTags.includes('soup');
+            }
+            else if (challenge.id === 'spice-explorer') {
+                if (recipeCuisine && !progress.cuisines.includes(recipeCuisine)) {
+                    progress.cuisines.push(recipeCuisine);
+                    qualifies = true;
+                }
+            }
+            else if (challenge.id === 'pasta-perfect') {
+                qualifies = recipeCategory.includes('pasta') || 
+                           recipeName.includes('pasta') || 
+                           recipeTags.includes('pasta');
+            }
+            else if (challenge.id === 'breakfast-king') {
+                qualifies = recipeCategory.includes('breakfast') || 
+                           recipeTags.includes('breakfast') ||
+                           recipeName.includes('breakfast');
+            }
+            else if (challenge.id === 'seafood-feast') {
+                qualifies = recipeCategory.includes('seafood') || 
+                           recipeCategory.includes('fish') ||
+                           recipeTags.includes('seafood') ||
+                           recipeTags.includes('fish');
+            }
+            else if (challenge.id === 'vegan-voyage') {
+                qualifies = recipeCategory.includes('vegan') || 
+                           recipeCategory.includes('vegetarian') ||
+                           recipeTags.includes('vegan') ||
+                           recipeTags.includes('vegetarian');
+            }
+            else if (challenge.id === 'dessert-lover') {
+                qualifies = recipeCategory.includes('dessert') || 
+                           recipeTags.includes('dessert') ||
+                           recipeName.includes('cake') ||
+                           recipeName.includes('pie') ||
+                           recipeName.includes('cookie');
+            }
+            else if (challenge.id === 'quick-meals') {
+                const cookTime = APIService.estimateCookingTime(recipe);
+                qualifies = cookTime <= 30;
+            }
+            else if (challenge.id === 'african-feast') {
+                qualifies = recipeCuisine.includes('nigerian') || 
+                           recipeCuisine.includes('ghanaian') ||
+                           recipeCuisine.includes('senegalese') ||
+                           recipeCuisine.includes('african');
+            }
+            else if (challenge.id === 'grill-master') {
+                qualifies = recipeTags.includes('grill') || 
+                           recipeTags.includes('bbq') ||
+                           recipeTags.includes('roast') ||
+                           recipeName.includes('grill') ||
+                           recipeName.includes('bbq') ||
+                           recipeName.includes('roast');
+            }
+
+            if (qualifies) {
+                progress.current = Math.min(progress.current + 1, challenge.target);
+                if (!progress.recipes.includes(recipe.idMeal)) {
+                    progress.recipes.push(recipe.idMeal);
+                }
+                
+                if (progress.current >= challenge.target && !progress.completed) {
+                    progress.completed = true;
+                    this.showChallengeComplete(challenge);
+                }
+                
+                anyProgress = true;
+                console.log(`✅ Progress on ${challenge.title}: ${progress.current}/${challenge.target}`);
+            }
+        });
+
+        if (anyProgress) {
+            this.completedRecipes.add(recipe.idMeal);
+            this.saveProgress();
+            if (typeof UI !== 'undefined' && UI.renderChallenges) {
+                UI.renderChallenges(); // Update UI
+            }
+        }
+    }
+
+    showChallengeComplete(challenge) {
+        console.log('🎉 CHALLENGE COMPLETE!', challenge.title);
+        
+        // Show achievement toast
+        setTimeout(() => {
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast(`🏆 Challenge Complete! ${challenge.badge} +${challenge.points} pts`, 'achievement');
+            }
+        }, 100);
+    }
+
+    claimReward(challengeId) {
+        const progress = this.progress[challengeId];
+        if (progress && progress.completed && !progress.claimed) {
+            progress.claimed = true;
+            this.saveProgress();
+            if (typeof UI !== 'undefined' && UI.renderChallenges) {
+                UI.renderChallenges();
+                UI.showToast(`🎁 Claimed ${CHALLENGES.find(c => c.id === challengeId).badge}!`, 'success');
+            }
+            return true;
+        }
+        return false;
+    }
+
+    getProgress(challengeId) {
+        return this.progress[challengeId] || { current: 0, completed: false, claimed: false };
+    }
+
+    saveProgress() {
+        localStorage.setItem(CONFIG.STORAGE_KEYS.CHALLENGES, JSON.stringify(this.progress));
+        console.log('💾 Challenges saved');
+    }
+
+    getOverallProgress() {
+        let completed = 0;
+        let total = CHALLENGES.length;
+        CHALLENGES.forEach(challenge => {
+            if (this.progress[challenge.id]?.completed) {
+                completed++;
+            }
+        });
+        return { completed, total };
+    }
+
+    getTotalPoints() {
+        let points = 0;
+        CHALLENGES.forEach(challenge => {
+            if (this.progress[challenge.id]?.claimed) {
+                points += challenge.points;
+            }
+        });
+        return points;
+    }
+}
 
 class NutritionCalculator {
     static estimateNutrition(recipe, servings = 1) {
@@ -69,6 +434,11 @@ class AppState {
         this.selectedMealPlanRecipe = null;
         this.baseIngredients = [];
         this.baseCookingTime = 0;
+        this.challengeTracker = new ChallengeTracker();
+        
+        console.log('🔵 App State Initialized');
+        console.log('📅 Loaded Meal Plan:', this.mealPlan);
+        console.log('🏆 Challenge Tracker Ready');
     }
 
     loadFromStorage(key, defaultValue) {
@@ -96,7 +466,13 @@ class AppState {
         if (!this.savedRecipes.find(r => r.idMeal === recipe.idMeal)) {
             this.savedRecipes.push({ ...recipe, savedAt: new Date().toISOString() });
             this.saveToStorage('SAVED_RECIPES', this.savedRecipes);
-            UI.updateSavedBadge(this.savedRecipes.length);
+            if (typeof UI !== 'undefined') {
+                UI.updateSavedBadge(this.savedRecipes.length);
+            }
+            
+            // Track recipe for challenges
+            this.challengeTracker.trackRecipe(recipe);
+            
             return true;
         }
         return false;
@@ -105,7 +481,9 @@ class AppState {
     removeRecipe(recipeId) {
         this.savedRecipes = this.savedRecipes.filter(r => r.idMeal !== recipeId);
         this.saveToStorage('SAVED_RECIPES', this.savedRecipes);
-        UI.updateSavedBadge(this.savedRecipes.length);
+        if (typeof UI !== 'undefined') {
+            UI.updateSavedBadge(this.savedRecipes.length);
+        }
     }
 
     isRecipeSaved(recipeId) {
@@ -124,7 +502,9 @@ class AppState {
             }
         });
         this.saveToStorage('SHOPPING_LIST', this.shoppingList);
-        UI.updateCartBadge(this.shoppingList.filter(i => !i.checked).length);
+        if (typeof UI !== 'undefined') {
+            UI.updateCartBadge(this.shoppingList.filter(i => !i.checked).length);
+        }
     }
 
     toggleShoppingItem(itemName) {
@@ -132,20 +512,26 @@ class AppState {
         if (item) {
             item.checked = !item.checked;
             this.saveToStorage('SHOPPING_LIST', this.shoppingList);
-            UI.updateCartBadge(this.shoppingList.filter(i => !i.checked).length);
+            if (typeof UI !== 'undefined') {
+                UI.updateCartBadge(this.shoppingList.filter(i => !i.checked).length);
+            }
         }
     }
 
     deleteShoppingItem(itemName) {
         this.shoppingList = this.shoppingList.filter(i => i.name !== itemName);
         this.saveToStorage('SHOPPING_LIST', this.shoppingList);
-        UI.updateCartBadge(this.shoppingList.filter(i => !i.checked).length);
+        if (typeof UI !== 'undefined') {
+            UI.updateCartBadge(this.shoppingList.filter(i => !i.checked).length);
+        }
     }
 
     clearShoppingList() {
         this.shoppingList = [];
         this.saveToStorage('SHOPPING_LIST', this.shoppingList);
-        UI.updateCartBadge(0);
+        if (typeof UI !== 'undefined') {
+            UI.updateCartBadge(0);
+        }
     }
 
     getWeekStart(date) {
@@ -175,6 +561,10 @@ class AppState {
             }
         }
         const saved = this.saveToStorage('MEAL_PLAN', this.mealPlan);
+        
+        // Track recipe for challenges when added to meal plan
+        this.challengeTracker.trackRecipe(recipe);
+        
         return saved;
     }
 
@@ -293,12 +683,33 @@ class APIService {
 
 class UI {
     static init() {
+        // FORCE SEARCH CONTAINER TO LEFT - ALIGNED WITH FILTERS
+        const searchContainer = document.querySelector('.search-container');
+        const heroSection = document.querySelector('.hero-section');
+        
+        if (searchContainer) {
+            // Remove all centering constraints
+            searchContainer.style.marginLeft = '0';
+            searchContainer.style.marginRight = 'auto';
+            searchContainer.style.maxWidth = 'none';
+            searchContainer.style.width = '100%';
+            searchContainer.style.padding = '0';
+        }
+        
+        if (heroSection) {
+            // Adjust hero section padding to match filter section
+            heroSection.style.padding = '60px 0 40px 0';
+        }
+        
         this.setupEventListeners();
         this.loadFeaturedRecipes();
         this.updateBadges();
+        this.hideLoadingScreen();
         this.loadLocalRecipes();
+        this.renderChallenges(); // Initial render of challenges
         
-        if (document.getElementById('mealPlanPage')?.classList.contains('active')) {
+        // Force render meal plan if page is active
+        if (document.getElementById('mealPlanPage').classList.contains('active')) {
             this.renderMealPlan();
         }
     }
@@ -307,10 +718,7 @@ class UI {
         const loader = document.getElementById('loadingScreen');
         if (loader) {
             loader.style.opacity = '0';
-            loader.style.display = 'none';
-            if (loader.parentNode) {
-                loader.parentNode.removeChild(loader);
-            }
+            setTimeout(() => loader.style.display = 'none', 300);
         }
     }
 
@@ -337,11 +745,38 @@ class UI {
         const cartBtn = document.getElementById('shoppingCartBtn');
         if (cartBtn) cartBtn.addEventListener('click', () => this.openShoppingCart());
 
-        // SEARCH WITH AUTOCOMPLETE - SIMPLE POSITIONING
+        // SEARCH WITH AUTOCOMPLETE - LEFT ALIGNED
         const searchInput = document.getElementById('searchInput');
+        const searchContainer = document.querySelector('.search-container');
+        const dropdown = document.getElementById('autocompleteDropdown');
+        
+        // FORCE LEFT ALIGNMENT ON PAGE LOAD AND AFTER ANY CHANGES
+        if (searchContainer) {
+            searchContainer.style.marginLeft = '0';
+            searchContainer.style.marginRight = 'auto';
+            searchContainer.style.maxWidth = 'none';
+            searchContainer.style.width = '100%';
+            searchContainer.style.padding = '0';
+        }
         
         if (searchInput) {
             let searchTimeout;
+            
+            // Position dropdown - LEFT ALIGNED with search wrapper
+            if (dropdown) {
+                dropdown.style.position = 'absolute';
+                dropdown.style.top = 'calc(100% + 10px)';
+                dropdown.style.left = '0';
+                dropdown.style.right = '0';
+                dropdown.style.width = '100%';
+                dropdown.style.marginLeft = '0';
+                dropdown.style.marginRight = '0';
+                dropdown.style.zIndex = '999999';
+                dropdown.style.backgroundColor = 'white';
+                dropdown.style.boxShadow = '0 10px 40px rgba(0,0,0,0.2)';
+                dropdown.style.borderRadius = '16px';
+                dropdown.style.border = '1px solid #e0e0e0';
+            }
             
             searchInput.addEventListener('input', (e) => {
                 clearTimeout(searchTimeout);
@@ -362,6 +797,12 @@ class UI {
                     this.hideAutocomplete();
                 }
             });
+
+            searchInput.addEventListener('focus', (e) => {
+                if (e.target.value.length >= 2) {
+                    this.handleAutocomplete(e.target.value);
+                }
+            });
         }
 
         // CLICK OUTSIDE TO HIDE
@@ -372,22 +813,6 @@ class UI {
                 if (!searchWrapper?.contains(e.target) && !dropdown.contains(e.target)) {
                     this.hideAutocomplete();
                 }
-            }
-        });
-
-        // WINDOW SCROLL - reposition dropdown if visible
-        window.addEventListener('scroll', () => {
-            const dropdown = document.getElementById('autocompleteDropdown');
-            if (dropdown && !dropdown.classList.contains('hidden')) {
-                this.positionAutocomplete();
-            }
-        });
-
-        // WINDOW RESIZE - reposition dropdown if visible
-        window.addEventListener('resize', () => {
-            const dropdown = document.getElementById('autocompleteDropdown');
-            if (dropdown && !dropdown.classList.contains('hidden')) {
-                this.positionAutocomplete();
             }
         });
 
@@ -498,6 +923,23 @@ class UI {
             if (filter) filter.addEventListener('change', () => this.applyDiscoverFilters());
         });
 
+        // CHALLENGES EVENT LISTENERS
+        document.addEventListener('click', (e) => {
+            // Claim challenge button
+            if (e.target.closest('.claim-challenge-btn')) {
+                const btn = e.target.closest('.claim-challenge-btn');
+                const challengeId = btn.dataset.challengeId;
+                if (challengeId) {
+                    state.challengeTracker.claimReward(challengeId);
+                }
+            }
+            
+            // View all challenges button
+            if (e.target.closest('#seeAllChallengesBtn')) {
+                this.showAllChallenges();
+            }
+        });
+
         // EVENT DELEGATION
         document.addEventListener('click', (e) => {
             if (e.target.closest('.save-btn')) {
@@ -552,7 +994,7 @@ class UI {
                 this.navigateTo('discover');
             }
 
-            // MEAL SLOT CLICK
+            // MEAL SLOT CLICK - View recipe details from meal plan
             if (e.target.closest('.meal-slot') && !e.target.closest('.remove-meal') && !e.target.closest('.empty-slot')) {
                 const slot = e.target.closest('.meal-slot');
                 const date = slot.dataset.date;
@@ -597,6 +1039,7 @@ class UI {
             if (page === 'discover') this.renderDiscoverPage();
             else if (page === 'saved') this.renderSavedRecipes();
             else if (page === 'meal-plan') {
+                console.log('🔄 Rendering meal plan page');
                 this.renderMealPlan();
             }
         }
@@ -605,9 +1048,7 @@ class UI {
     static async loadFeaturedRecipes() {
         const container = document.getElementById('featuredRecipes');
         if (!container) return;
-        
         container.innerHTML = '<div class="loading-container"><div class="loading-spinner"></div></div>';
-        
         try {
             const localFeatured = LOCAL_RECIPES.slice(0, 3);
             const apiRecipes = await APIService.getMultipleRandomRecipes(3);
@@ -652,23 +1093,6 @@ class UI {
         this.showAutocomplete(results.slice(0, 5));
     }
 
-    static positionAutocomplete() {
-        const searchWrapper = document.querySelector('.search-wrapper');
-        const dropdown = document.getElementById('autocompleteDropdown');
-        
-        if (!searchWrapper || !dropdown) return;
-        
-        const rect = searchWrapper.getBoundingClientRect();
-        
-        // SIMPLE POSITIONING - directly below search bar
-        dropdown.style.position = 'fixed';
-        dropdown.style.top = (rect.bottom + window.scrollY) + 'px';
-        dropdown.style.left = rect.left + 'px';
-        dropdown.style.width = rect.width + 'px';
-        dropdown.style.right = 'auto';
-        dropdown.style.margin = '0';
-    }
-
     static showAutocomplete(results) {
         const dropdown = document.getElementById('autocompleteDropdown');
         if (!dropdown) return;
@@ -677,6 +1101,20 @@ class UI {
             this.hideAutocomplete();
             return;
         }
+
+        // LEFT ALIGNED
+        dropdown.style.position = 'absolute';
+        dropdown.style.top = 'calc(100% + 10px)';
+        dropdown.style.left = '0';
+        dropdown.style.right = '0';
+        dropdown.style.width = '100%';
+        dropdown.style.marginLeft = '0';
+        dropdown.style.marginRight = '0';
+        dropdown.style.zIndex = '999999';
+        dropdown.style.backgroundColor = 'white';
+        dropdown.style.boxShadow = '0 10px 40px rgba(0,0,0,0.2)';
+        dropdown.style.borderRadius = '16px';
+        dropdown.style.border = '1px solid #e0e0e0';
 
         dropdown.innerHTML = results.map(recipe => {
             const imageUrl = recipe.strMealThumb || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&q=80';
@@ -692,7 +1130,6 @@ class UI {
         }).join('');
 
         dropdown.classList.remove('hidden');
-        this.positionAutocomplete();
     }
 
     static hideAutocomplete() {
@@ -822,6 +1259,137 @@ class UI {
         else this.loadRegionalRecipes(filter);
     }
 
+    // ===== CHALLENGES RENDERING =====
+    static renderChallenges() {
+        const container = document.querySelector('.challenges-grid');
+        if (!container) return;
+
+        // Get first 2 challenges for homepage
+        const displayedChallenges = CHALLENGES.slice(0, 2);
+        
+        container.innerHTML = displayedChallenges.map(challenge => {
+            const progress = state.challengeTracker.getProgress(challenge.id);
+            const percentage = Math.min(Math.round((progress.current / challenge.target) * 100), 100);
+            
+            return `
+                <div class="challenge-card ${progress.completed ? 'challenge-completed' : ''} ${progress.claimed ? 'challenge-claimed' : ''}">
+                    <div class="challenge-icon">${challenge.icon}</div>
+                    <h3>${challenge.title}</h3>
+                    <p>${challenge.description}</p>
+                    <div class="challenge-progress">
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${percentage}%"></div>
+                        </div>
+                        <span>${progress.current}/${challenge.target} ${challenge.unit}</span>
+                    </div>
+                    ${progress.completed && !progress.claimed ? `
+                        <button class="claim-challenge-btn" data-challenge-id="${challenge.id}">
+                            <i class="fas fa-gift"></i> Claim ${challenge.points} pts
+                        </button>
+                    ` : progress.claimed ? `
+                        <div class="challenge-claimed-badge">
+                            <i class="fas fa-check-circle"></i> Claimed
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+
+        // Add overall progress and "View All" button
+        const overallProgress = state.challengeTracker.getOverallProgress();
+        const totalPoints = state.challengeTracker.getTotalPoints();
+        
+        const challengesSection = document.querySelector('.challenges-section');
+        if (challengesSection) {
+            const header = challengesSection.querySelector('.section-header');
+            if (header) {
+                const seeAllBtn = header.querySelector('.see-all-btn');
+                if (seeAllBtn) {
+                    seeAllBtn.id = 'seeAllChallengesBtn';
+                }
+                
+                const badge = header.querySelector('.challenges-badge') || document.createElement('span');
+                badge.className = 'challenges-badge';
+                badge.innerHTML = `<i class="fas fa-trophy"></i> ${overallProgress.completed}/${overallProgress.total} • ${totalPoints} pts`;
+                if (!header.querySelector('.challenges-badge')) {
+                    header.appendChild(badge);
+                }
+            }
+        }
+    }
+
+    static showAllChallenges() {
+        // Create modal with all challenges
+        let modal = document.getElementById('allChallengesModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'allChallengesModal';
+            modal.className = 'modal';
+            modal.innerHTML = `
+                <div class="modal-overlay" data-close-modal="allChallengesModal"></div>
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2><i class="fas fa-trophy"></i> Weekly Cooking Challenges</h2>
+                        <button class="close-modal" data-close-modal="allChallengesModal"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="challenges-stats">
+                            <div class="stat-card">
+                                <div class="stat-icon">🏆</div>
+                                <div class="stat-value">${state.challengeTracker.getOverallProgress().completed}</div>
+                                <div class="stat-label">Completed</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">⭐</div>
+                                <div class="stat-value">${state.challengeTracker.getTotalPoints()}</div>
+                                <div class="stat-label">Points Earned</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">🎯</div>
+                                <div class="stat-value">${CHALLENGES.length}</div>
+                                <div class="stat-label">Total Challenges</div>
+                            </div>
+                        </div>
+                        <div class="all-challenges-grid">
+                            ${CHALLENGES.map(challenge => {
+                                const progress = state.challengeTracker.getProgress(challenge.id);
+                                const percentage = Math.min(Math.round((progress.current / challenge.target) * 100), 100);
+                                return `
+                                    <div class="challenge-card ${progress.completed ? 'challenge-completed' : ''} ${progress.claimed ? 'challenge-claimed' : ''}">
+                                        <div class="challenge-icon">${challenge.icon}</div>
+                                        <h3>${challenge.title}</h3>
+                                        <p>${challenge.description}</p>
+                                        <div class="challenge-progress">
+                                            <div class="progress-bar">
+                                                <div class="progress-fill" style="width: ${percentage}%"></div>
+                                            </div>
+                                            <span>${progress.current}/${challenge.target} ${challenge.unit}</span>
+                                        </div>
+                                        <div class="challenge-reward">
+                                            <i class="fas fa-medal"></i> ${challenge.badge} • ${challenge.points} pts
+                                        </div>
+                                        ${progress.completed && !progress.claimed ? `
+                                            <button class="claim-challenge-btn" data-challenge-id="${challenge.id}">
+                                                <i class="fas fa-gift"></i> Claim Reward
+                                            </button>
+                                        ` : progress.claimed ? `
+                                            <div class="challenge-claimed-badge">
+                                                <i class="fas fa-check-circle"></i> Claimed
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+        
+        this.openModal('allChallengesModal');
+    }
+
     static async showRecipeDetails(recipeId) {
         const drawer = document.getElementById('recipeDrawer');
         if (!drawer) return;
@@ -847,6 +1415,10 @@ class UI {
             state.baseCookingTime = APIService.estimateCookingTime(recipe);
             detailContainer.innerHTML = this.createRecipeDetailHTML(recipe);
             this.setupRecipeDetailListeners(recipe);
+            
+            // Track recipe for challenges when viewed
+            state.challengeTracker.trackRecipe(recipe);
+            
         } catch (error) {
             detailContainer.innerHTML = '<p>Error loading recipe</p>';
         }
@@ -1166,8 +1738,10 @@ class UI {
     }
 
     static renderMealPlan() {
+        console.log('🍽️ Rendering meal plan');
         const grid = document.getElementById('mealPlanGrid');
         if (!grid) {
+            console.error('❌ Meal plan grid not found');
             return;
         }
 
@@ -1228,7 +1802,7 @@ class UI {
         html += `</div>`;
 
         if (!hasAnyMeals) {
-            html = `
+            html += `
                 <div class="empty-state">
                     <i class="fas fa-calendar-plus"></i>
                     <h3>No meals planned yet</h3>
@@ -1239,6 +1813,7 @@ class UI {
         }
 
         grid.innerHTML = html;
+        console.log('✅ Meal plan rendered, has meals:', hasAnyMeals);
     }
 
     static clearWeekMealPlan() {
@@ -1441,7 +2016,8 @@ class UI {
             success: 'fa-check-circle',
             error: 'fa-exclamation-circle',
             info: 'fa-info-circle',
-            warning: 'fa-exclamation-triangle'
+            warning: 'fa-exclamation-triangle',
+            achievement: 'fa-trophy'
         };
         toast.innerHTML = `
             <i class="fas ${icons[type] || icons.info}"></i>
@@ -1451,7 +2027,7 @@ class UI {
         setTimeout(() => toast.classList.add('show'), 10);
         setTimeout(() => {
             toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 300);
+            setTimeout(() => toast.remove(), 3000);
         }, 3000);
     }
 
@@ -1461,118 +2037,68 @@ class UI {
     }
 }
 
-// ===== HIDE LOADING SCREEN IMMEDIATELY =====
-(function hideLoadingScreenNow() {
-    const loader = document.getElementById('loadingScreen');
-    if (loader) {
-        loader.style.opacity = '0';
-        loader.style.display = 'none';
-        if (loader.parentNode) {
-            loader.parentNode.removeChild(loader);
-        }
-    }
-})();
-
-// ===== SIMPLE CSS FIXES - INJECT STYLES =====
-(function injectStyles() {
-    const style = document.createElement('style');
-    style.textContent = `
-        /* FORCE LEFT ALIGNMENT */
-        .hero-content, .hero-title, .hero-description,
-        .search-container, .search-wrapper, .filter-section-header,
-        .filter-label, .search-filters {
-            text-align: left !important;
-            margin-left: 0 !important;
-            margin-right: auto !important;
-            width: 100% !important;
-            max-width: 100% !important;
-        }
-        
-        .search-filters {
-            display: flex !important;
-            flex-wrap: wrap !important;
-            justify-content: flex-start !important;
-            gap: 8px !important;
-            padding-left: 0 !important;
-        }
-        
-        .filter-chip {
-            margin-left: 0 !important;
-            margin-right: 8px !important;
-        }
-        
-        /* DROPDOWN STYLES - GUARANTEED POSITION */
-        #autocompleteDropdown {
-            position: fixed !important;
-            background: white !important;
-            border-radius: 16px !important;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2) !important;
-            border: 1px solid #e0e0e0 !important;
-            z-index: 999999 !important;
-            max-height: 400px !important;
-            overflow-y: auto !important;
-        }
-        
-        #autocompleteDropdown.hidden {
-            display: none !important;
-        }
-        
-        .autocomplete-item {
-            display: flex !important;
-            align-items: center !important;
-            gap: 12px !important;
-            padding: 12px 16px !important;
-            cursor: pointer !important;
-            border-bottom: 1px solid #f0f0f0 !important;
-        }
-        
-        .autocomplete-item:hover {
-            background: #f5f5f5 !important;
-        }
-        
-        .autocomplete-item img {
-            width: 50px !important;
-            height: 50px !important;
-            object-fit: cover !important;
-            border-radius: 8px !important;
-        }
-    `;
-    document.head.appendChild(style);
-})();
-
 // ===== INITIALIZE =====
 document.addEventListener('DOMContentLoaded', () => {
     console.log('🚀 Initializing Recipe Finder App...');
     
-    // Move dropdown to body
-    const dropdown = document.getElementById('autocompleteDropdown');
-    if (dropdown && dropdown.parentNode) {
-        dropdown.parentNode.removeChild(dropdown);
-        document.body.appendChild(dropdown);
-    }
-    
-    // Force left alignment on all elements
-    const forceLeft = () => {
-        document.querySelectorAll('.hero-content, .hero-title, .hero-description, .search-container, .search-wrapper, .filter-section-header, .filter-label').forEach(el => {
-            if (el) {
-                el.style.textAlign = 'left';
-                el.style.marginLeft = '0';
-                el.style.marginRight = 'auto';
-            }
-        });
+    // FORCE SEARCH CONTAINER TO LEFT - ALIGNED WITH FILTERS
+    const forceLeftAlignment = () => {
+        const searchContainer = document.querySelector('.search-container');
+        const heroSection = document.querySelector('.hero-section');
         
-        const searchFilters = document.querySelector('.search-filters');
-        if (searchFilters) {
-            searchFilters.style.justifyContent = 'flex-start';
-            searchFilters.style.marginLeft = '0';
-            searchFilters.style.marginRight = 'auto';
+        if (searchContainer) {
+            searchContainer.style.marginLeft = '0';
+            searchContainer.style.marginRight = 'auto';
+            searchContainer.style.maxWidth = 'none';
+            searchContainer.style.width = '100%';
+            searchContainer.style.padding = '0';
+            console.log('✅ Search container forced to left alignment (matching filters)');
+        }
+        
+        if (heroSection) {
+            heroSection.style.padding = '60px 0 40px 0';
         }
     };
     
-    forceLeft();
+    // Run immediately
+    forceLeftAlignment();
+    
+    // Run after delays to ensure it sticks
+    setTimeout(forceLeftAlignment, 100);
+    setTimeout(forceLeftAlignment, 500);
+    
     UI.init();
+    
+    // Force dropdown positioning - LEFT ALIGNED with search wrapper
+    const searchWrapper = document.querySelector('.search-wrapper');
+    const dropdown = document.getElementById('autocompleteDropdown');
+    if (dropdown && searchWrapper) {
+        dropdown.style.position = 'absolute';
+        dropdown.style.top = 'calc(100% + 10px)';
+        dropdown.style.left = '0';
+        dropdown.style.right = '0';
+        dropdown.style.width = '100%';
+        dropdown.style.marginLeft = '0';
+        dropdown.style.marginRight = '0';
+        dropdown.style.zIndex = '999999';
+        dropdown.style.backgroundColor = 'white';
+        dropdown.style.boxShadow = '0 10px 40px rgba(0,0,0,0.2)';
+        dropdown.style.borderRadius = '16px';
+        dropdown.style.border = '1px solid #e0e0e0';
+    }
+    
+    // Force meal plan render if on meal plan page
+    if (document.getElementById('mealPlanPage').classList.contains('active')) {
+        UI.renderMealPlan();
+    }
+    
+    // Render challenges
+    setTimeout(() => {
+        UI.renderChallenges();
+    }, 200);
     
     console.log('✅ App initialized successfully!');
 });
 
+// Make UI accessible globally for onclick handlers
 window.UI = UI;
